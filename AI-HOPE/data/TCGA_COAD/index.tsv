@@ -1,0 +1,7 @@
+Attribute,Description,Type
+PATIENT_ID,Unique identifier,string
+TP53_mutation_status,"1=mutated, 0=wildtype",binary
+TUMOR_STAGE,AJCC pathological stage,categorical
+KRAS_mutation_status,"1=mutated, 0=wildtype",binary
+OS_MONTHS,Overall survival time,numeric
+OS_EVENT,"1=death, 0=censored",binary
