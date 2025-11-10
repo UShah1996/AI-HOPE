@@ -1,7 +1,81 @@
-PATIENT_ID	Unique identifier	string
-TP53_mutation_status	1=mutated, 0=wildtype	binary
-TUMOR_STAGE	AJCC pathological stage	categorical
-KRAS_mutation_status	1=mutated, 0=wildtype	binary
-OS_MONTHS	Overall survival time	numeric
-OS_EVENT	1=death, 0=censored	binary# created by virtualenv automatically
-AI-HOPE/src
+# ======================================
+# PYTHON / VENV
+# ======================================
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.pdb
+*.log
+*.egg-info/
+.eggs/
+.env
+.venv/
+.venv1/
+ENV/
+env/
+venv/
+
+# ======================================
+# IDE / OS FILES
+# ======================================
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*.bak
+
+# ======================================
+# PROJECT DATA AND MODELS
+# ======================================
+# Local datasets (never commit patient/clinical data)
+data/*/main_data.tsv
+data/*/main_data.csv
+data/*/raw/
+data/*/processed/
+data/temp/
+data/private/
+
+# Model checkpoints or embeddings
+models/
+checkpoints/
+outputs/
+results/
+logs/
+reports/
+
+# ======================================
+# NOTEBOOK / CACHE FILES
+# ======================================
+.ipynb_checkpoints/
+.notebooks_cache/
+**/.ipynb_checkpoints
+
+# ======================================
+# TESTING / TEMP FILES
+# ======================================
+coverage/
+.cache/
+pytest_cache/
+tmp/
+*.tmp
+*.out
+
+# ======================================
+# SYSTEM / PACKAGE MANAGERS
+# ======================================
+__MACOSX/
+node_modules/
+*.lock
+*.tar.gz
+*.zip
+
+# ======================================
+# BACKUPS / MISC
+# ======================================
+*.bak
+*.old
+*.orig
+*.save
