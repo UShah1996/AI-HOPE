@@ -7,8 +7,6 @@ __pycache__/
 *.pyd
 *.pdb
 *.log
-*.egg-info/
-.eggs/
 .env
 .venv/
 .venv1/
@@ -23,10 +21,6 @@ venv/
 .vscode/
 .DS_Store
 Thumbs.db
-*.swp
-*.swo
-*.bak
-
 # ======================================
 # PROJECT DATA AND RESULTS
 # ======================================
@@ -35,46 +29,6 @@ Thumbs.db
 /data/
 /data/**/*
 
-# --- Specific data file patterns (safety net) ---
-# Common bioinformatics formats
-data/**/*.tsv
-data/**/*.csv
-data/**/*.xlsx
-/data/**/*.xls
-/data/**/*.json
-/data/**/*.parquet
-/data/**/*.feather
-/data/**/*.txt
-
-# --- Optional subfolder organization ---
-/data/*/raw/
-/data/*/processed/
-/data/*/private/
-/data/temp/
-/data/user_uploads/
-
-# --- Analysis outputs and derived results ---
-/outputs/
-/results/
-/reports/
-/logs/
-/models/
-/checkpoints/
-
-# --- Note ---
-# The data folder structure and main tables (README.txt, index.tsv)
-# can be safely versioned if desired.
-# Add negation rules for metadata if needed:
-#!/data/*/README.txt
-#!/data/*/index.tsv
-
-
-# ======================================
-# NOTEBOOK / CACHE FILES
-# ======================================
-.ipynb_checkpoints/
-.notebooks_cache/
-**/.ipynb_checkpoints
 
 # ======================================
 # TESTING / TEMP FILES
@@ -85,20 +39,3 @@ pytest_cache/
 tmp/
 *.tmp
 *.out
-
-# ======================================
-# SYSTEM / PACKAGE MANAGERS
-# ======================================
-__MACOSX/
-node_modules/
-*.lock
-*.tar.gz
-*.zip
-
-# ======================================
-# BACKUPS / MISC
-# ======================================
-*.bak
-*.old
-*.orig
-*.save
