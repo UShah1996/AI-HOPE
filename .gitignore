@@ -28,23 +28,46 @@ Thumbs.db
 *.bak
 
 # ======================================
-# PROJECT DATA AND MODELS
+# PROJECT DATA AND RESULTS
 # ======================================
-# Local datasets (never commit patient/clinical data)
-data/*/main_data.tsv
-data/*/main_data.csv
-data/*/raw/
-data/*/processed/
-data/temp/
-data/private/
 
-# Model checkpoints or embeddings
-models/
-checkpoints/
-outputs/
-results/
-logs/
-reports/
+# --- Core data directories ---
+/data/
+/data/**/*
+
+# --- Specific data file patterns (safety net) ---
+# Common bioinformatics formats
+data/**/*.tsv
+data/**/*.csv
+data/**/*.xlsx
+/data/**/*.xls
+/data/**/*.json
+/data/**/*.parquet
+/data/**/*.feather
+/data/**/*.txt
+
+# --- Optional subfolder organization ---
+/data/*/raw/
+/data/*/processed/
+/data/*/private/
+/data/temp/
+/data/user_uploads/
+
+# --- Analysis outputs and derived results ---
+/outputs/
+/results/
+/reports/
+/logs/
+/models/
+/checkpoints/
+
+# --- Note ---
+# The data folder structure and main tables (README.txt, index.tsv)
+# can be safely versioned if desired.
+# Add negation rules for metadata if needed:
+#!/data/*/README.txt
+#!/data/*/index.tsv
+
 
 # ======================================
 # NOTEBOOK / CACHE FILES
