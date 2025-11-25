@@ -50,33 +50,33 @@ Ollama: This project requires a local instance of Llama3. Download Ollama from o
 
 
 1. Clone the Repository
-    Bash: git clone [https://github.com/UShah1996/AI-HOPE.git](https://github.com/UShah1996/AI-HOPE.git)
-    cd ai-hope-implementation
+   * Bash: git clone [https://github.com/UShah1996/AI-HOPE.git](https://github.com/UShah1996/AI-HOPE.git)
+   * cd ai-hope-implementation
 2. Install Python Dependencies
-    Bash: pip install -r requirements.txt
+   * Bash: pip install -r requirements.txt
 3. Initialize Local LLM
 Ensure Ollama is running and pull the Llama3 model (or the specific model version you intend to use).
-    Bash: ollama run llama3
+   * Bash: ollama run llama3
 4. Run the Application
-    Bash: streamlit run src/app.py
+   * Bash: streamlit run src/app.py
 
 ## 🧪 Capabilities & Usage
 AI-HOPE supports two primary modes of analysis triggered by natural language:
 
 1. Case-Control Studies
-Define cohorts based on clinical criteria and compare them.
-Example Query: "Does the frequency of TP53 mutations differ between early- and late-stage CRC?".
-Mechanism: The system defines "Case" (Late Stage) and "Control" (Early Stage) groups using logical expressions like TUMOR_STAGE is in {T3, T4} and performs an Odds Ratio test .
+* Define cohorts based on clinical criteria and compare them.
+* Example Query: "Does the frequency of TP53 mutations differ between early- and late-stage CRC?".
+* Mechanism: The system defines "Case" (Late Stage) and "Control" (Early Stage) groups using logical expressions like TUMOR_STAGE is in {T3, T4} and performs an Odds Ratio test .
 
 2. Survival Analysis
-Compare outcomes between groups using Kaplan-Meier curves and Hazard Ratios.
-Example Query: "Compare survival outcomes between FOLFOX-treated patients with and without KRAS mutations.".
-Mechanism: The system filters for treated patients, stratifies by mutation status (KRAS_mutation_status is 1 vs 0), and computes progression-free survival statistics .
+* Compare outcomes between groups using Kaplan-Meier curves and Hazard Ratios.
+* Example Query: "Compare survival outcomes between FOLFOX-treated patients with and without KRAS mutations.".
+* Mechanism: The system filters for treated patients, stratifies by mutation status (KRAS_mutation_status is 1 vs 0), and computes progression-free survival statistics .
 
 3. Global Association Scans
-Identify all variables significantly associated with a specific outcome.
-Example Query: "Tell me everything associated with overall survival in colon cancer.".
-Mechanism: The agent scans all available variables in the index.txt to identify significant associations.
+* Identify all variables significantly associated with a specific outcome.
+* Example Query: "Tell me everything associated with overall survival in colon cancer.".
+* Mechanism: The agent scans all available variables in the index.txt to identify significant associations.
 
 ## 🛡️ Privacy Note
 This software is designed for local deployment only. To maintain the security of sensitive clinical data, do not modify the code to send data to external APIs (e.g., OpenAI, Anthropic). The logic extraction is handled entirely by the local Llama3 instance to avoid online data exchange.
