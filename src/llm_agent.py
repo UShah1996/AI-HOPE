@@ -1,5 +1,6 @@
 import ollama
 import json
+import re
 
 
 class LLMAgent:
@@ -34,7 +35,7 @@ class LLMAgent:
             "control_condition": "TUMOR_STAGE is in {{'Stage I', 'Stage II'}}"
         }}
 
-        Return ONLY valid JSON.
+        Return ONLY valid JSON. Do not add conversational text.
         """
 
         try:
@@ -44,12 +45,23 @@ class LLMAgent:
             ])
 
             content = response['message']['content']
+
+            # --- IMPROVED CLEANING LOGIC ---
+            # 1. Try to find JSON inside markdown blocks
             if "```json" in content:
                 content = content.split("```json")[1].split("```")[0].strip()
+
+            # 2. If that fails, look for the first '{' and last '}'
+            match = re.search(r"(\{.*\})", content, re.DOTALL)
+            if match:
+                content = match.group(1)
+            # -------------------------------
 
             return json.loads(content)
 
         except Exception as e:
+            # Print the raw content to the terminal for debugging
+            print(f"DEBUG: Failed LLM Content: {content if 'content' in locals() else 'No content'}")
             return {"error": f"LLM Parsing Failed: {str(e)}"}
 
     def suggest_analysis(self, query):
@@ -62,6 +74,6 @@ class LLMAgent:
             response = ollama.chat(model=self.model, messages=[
                 {'role': 'user', 'content': prompt}
             ])
-            return response['message']['content'].strip()
+            return response['message']['content'].strip().strip('"').strip("'")
         except Exception as e:
             return "Error"
