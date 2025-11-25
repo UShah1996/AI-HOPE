@@ -1,88 +1,67 @@
-# import json
-# from intents import AnalysisIntent
-#
-# class AIHOPEAgent:
-#     def __init__(self, model_name="google/flan-t5-base"):
-#         from transformers import pipeline
-#         self.generator = pipeline("text2text-generation", model=model_name)
-#
-#     def interpret_query(self, user_input: str) -> AnalysisIntent:
-#         prompt = f"""
-#         You are AI-HOPE, an assistant that converts biomedical research questions
-#         into structured analysis instructions.
-#
-#         Example output JSON:
-#         {{
-#           "query_type": "survival",
-#           "dataset": "TCGA_COAD",
-#           "target_variable": "KRAS_mutation_status",
-#           "group_variable": "FOLFOX_treatment",
-#           "filters": {{"cancer_type": "colorectal"}}
-#         }}
-#
-#         Now respond ONLY with valid JSON for this question:
-#         "{user_input}"
-#         """
-#
-#         response = self.generator(prompt, max_new_tokens=256)[0]["generated_text"]
-#         print("\n🧩 Raw model output:\n", response, "\n")
-#
-#         # Try to find JSON in the response
-#         try:
-#             start = response.index("{")
-#             end = response.rindex("}") + 1
-#             json_text = response[start:end]
-#             parsed = json.loads(json_text)
-#         except Exception:
-#             # fallback — if model returned plain text or malformed JSON
-#             print("⚠️ Could not parse model output as JSON, using fallback intent.")
-#             parsed = {
-#                 "query_type": "survival",
-#                 "dataset": "TCGA_COAD",
-#                 "target_variable": "KRAS_mutation_status",
-#                 "group_variable": "FOLFOX_treatment"
-#             }
-#
-#         # Fill missing optional fields
-#         for field in ["dataset", "target_variable", "group_variable"]:
-#             if field not in parsed or not parsed[field]:
-#                 parsed[field] = "unknown"
-#
-#         return AnalysisIntent(**parsed)
-from intents import AnalysisIntent
-from difflib import get_close_matches
+import ollama
 import json
 
 
-def validate_columns(self, parsed_json, available_columns):
+class LLMAgent:
     """
-    Sanity checks the LLM output against the actual dataset index.
+    The central intelligence of AI-HOPE.
     """
-    # Extract all columns mentioned in the JSON logic
-    mentioned_cols = []
-    if "target_variable" in parsed_json: mentioned_cols.append(parsed_json["target_variable"])
 
-    # Check if they exist
-    for col in mentioned_cols:
-        if col not in available_columns:
-            # Try to auto-correct using string similarity
-            suggestion = get_close_matches(col, available_columns, n=1)
-            if suggestion:
-                parsed_json["target_variable"] = suggestion[0]  # Auto-fix
-            else:
-                return False, f"Error: Column '{col}' not found in dataset."
+    def __init__(self, model_name="llama3"):
+        self.model = model_name
 
-    return True, parsed_json
+    def interpret_query(self, user_query, column_names):
+        """
+        Uses Llama3 to parse natural language into structured logic rules.
+        """
+        system_prompt = f"""
+        You are AI-HOPE, a clinical research assistant.
+        Your task is to convert a natural language query into a STRUCTURED JSON format.
 
-class AIHOPEAgent:
-    def __init__(self, model_name=None):
-        self.generator = None
+        Available Data Attributes: {column_names}
 
-    def interpret_query(self, user_input: str):
-        print("Mock LLM: parsing simulated intent.")
-        return AnalysisIntent(
-            query_type="survival",
-            dataset="TCGA_COAD",
-            target_variable="KRAS_mutation_status",
-            group_variable="FOLFOX_treatment"
-        )
+        RULES:
+        1. Identify the 'target' variable (e.g., Survival, Mutation Status).
+        2. Identify the 'cohort' definitions (e.g., Late Stage vs Early Stage).
+        3. Use ONLY these operators: "is", "is not", "greater than", "less than", "is in".
+
+        EXAMPLE INPUT: "Compare TP53 mutations in early vs late stage CRC"
+        EXAMPLE JSON OUTPUT:
+        {{
+            "analysis_type": "case_control",
+            "target_variable": "TP53_Mutation",
+            "case_condition": "TUMOR_STAGE is in {{'Stage III', 'Stage IV'}}",
+            "control_condition": "TUMOR_STAGE is in {{'Stage I', 'Stage II'}}"
+        }}
+
+        Return ONLY valid JSON.
+        """
+
+        try:
+            response = ollama.chat(model=self.model, messages=[
+                {'role': 'system', 'content': system_prompt},
+                {'role': 'user', 'content': user_query}
+            ])
+
+            content = response['message']['content']
+            if "```json" in content:
+                content = content.split("```json")[1].split("```")[0].strip()
+
+            return json.loads(content)
+
+        except Exception as e:
+            return {"error": f"LLM Parsing Failed: {str(e)}"}
+
+    def suggest_analysis(self, query):
+        """
+        Determines if the request is a Survival Analysis, Association Scan, or Case-Control.
+        """
+        prompt = f"Classify this clinical question into one category: 'Survival Analysis', 'Case-Control', or 'Association Scan'. Question: '{query}'. Return ONLY the category name."
+
+        try:
+            response = ollama.chat(model=self.model, messages=[
+                {'role': 'user', 'content': prompt}
+            ])
+            return response['message']['content'].strip()
+        except Exception as e:
+            return "Error"
