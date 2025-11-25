@@ -78,6 +78,46 @@ AI-HOPE supports two primary modes of analysis triggered by natural language:
 * Example Query: "Tell me everything associated with overall survival in colon cancer.".
 * Mechanism: The agent scans all available variables in the index.txt to identify significant associations.
 
+## Sample Questions
+
+Based on the capabilities described in the paper and the dummy data we generated (which contains TUMOR_STAGE, KRAS_mutation_status, TP53_Mutation, OS_MONTHS, and OS_STATUS), here are sample questions you can ask to test each mode of your AI-HOPE agent.
+
+1. Survival Analysis (Kaplan-Meier & Hazard Ratios)
+
+Tests if the agent can generate survival curves and calculate risk.
+
+* Compare survival outcomes for patients with KRAS_mutation_status.
+* Does TP53_Mutation affect overall survival?
+* Show me the survival curve for TUMOR_STAGE.
+* Analyze the survival difference between patients with and without KRAS mutations.
+
+2. Case-Control Studies (Odds Ratios)
+
+Tests if the agent can define "Case" vs "Control" groups and check for enrichment.
+  * Compare TP53_Mutation frequency in Stage I vs Stage IV.
+  * Is KRAS_mutation_status more common in Stage IV compared to Stage I?
+  * Does the frequency of TP53 mutations differ between early-stage (Stage I) and late-stage (Stage IV) cancer?
+  
+(Note: This tests the logic parser's ability to map "early-stage" to specific values if you prompted it, or you can be specific like "Stage I").
+
+3. Global Discovery (Association Scan)
+
+Tests the "Loop" function that checks all variables against a target.
+
+* Tell me everything associated with OS_STATUS.
+* What variables are linked to TUMOR_STAGE?
+* Run a global scan for associations with KRAS_mutation_status.
+
+4. Complex Logic (Testing the Parser)
+
+Tests if the system handles parenthetical logic or multi-condition groups.
+
+* Compare survival for patients where TUMOR_STAGE is in {'Stage III', 'Stage IV'} vs {'Stage I', 'Stage II'}.
+* Is TP53_Mutation associated with high risk survival groups?
+
+Tip for Best Results:
+* Since we are using a local Llama3 model, it works best when you use the exact column names from your dataset (e.g., say KRAS_mutation_status instead of just "KRAS") until we add more advanced synonym mapping.
+
 ## 🛡️ Privacy Note
 This software is designed for local deployment only. To maintain the security of sensitive clinical data, do not modify the code to send data to external APIs (e.g., OpenAI, Anthropic). The logic extraction is handled entirely by the local Llama3 instance to avoid online data exchange.
 
