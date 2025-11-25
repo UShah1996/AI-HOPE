@@ -1,16 +1,153 @@
-from llm_agent import AIHOPEAgent
-from data_loader import load_dataset
-from analysis_engine import run_analysis
+import streamlit as st
+import pandas as pd
+import os
+from llm_agent import LLMAgent
+from query_parser import QueryParser
+from analysis_engine import AnalysisEngine
 
-if __name__ == "__main__":
-    agent = AIHOPEAgent()
-    print("🧠  AI-HOPE ready. Ask a research question.")
-    while True:
-        user_input = input(">> ")
-        if user_input.lower() in ["exit", "quit"]:
-            break
-        intent = agent.interpret_query(user_input)
-        print("Parsed intent:", intent.model_dump())
-        df = load_dataset(f"data/{intent.dataset}")
-        results = run_analysis(df, intent)
-        print(results)
+# --- Configuration ---
+DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
+st.set_page_config(page_title="AI-HOPE Agent", layout="wide")
+
+
+# --- Helper Functions ---
+def load_data(dataset_name):
+    """
+    Loads the 3-file format: README, Index, Data Table.
+    """
+    path = os.path.join(DATA_DIR, dataset_name)
+    try:
+        data = pd.read_csv(os.path.join(path, "main_data.tsv"), sep="\t")
+        with open(os.path.join(path, "index.tsv"), "r") as f:
+            columns = [line.strip() for line in f.readlines()]
+        return data, columns
+    except FileNotFoundError:
+        return None, None
+
+
+# --- Main App Interface ---
+st.title("🧬 AI-HOPE: Precision Medicine Agent")
+st.markdown("*Locally deployed clinical research assistant [Bioinformatics 2025]*")
+
+# Sidebar: Data Selection
+st.sidebar.header("Dataset Selection")
+if os.path.exists(DATA_DIR):
+    available_datasets = [d for d in os.listdir(DATA_DIR) if os.path.isdir(os.path.join(DATA_DIR, d))]
+else:
+    available_datasets = []
+
+selected_dataset = st.sidebar.selectbox("Choose Cohort", available_datasets)
+
+if selected_dataset:
+    df, cols = load_data(selected_dataset)
+    if df is not None:
+        st.sidebar.success(f"Loaded {len(df)} samples")
+        with st.expander("View Data Preview"):
+            st.dataframe(df.head())
+    else:
+        st.error("Dataset files missing (Requires main_data.tsv and index.tsv)")
+        st.stop()
+else:
+    st.info("Please add a dataset to the 'data/' folder.")
+    st.stop()
+
+# Main Chat Interface
+query = st.text_input("Describe your research question:",
+                      placeholder="e.g., Tell me everything associated with overall survival")
+
+if st.button("Analyze"):
+    # 1. Initialize Agents
+    llm = LLMAgent()
+    parser = QueryParser()
+
+    with st.spinner("AI-HOPE is thinking..."):
+        # 2. Determine Intent & Logic
+        # Note: We ask the LLM to classify into 3 specific buckets now
+        analysis_type = llm.suggest_analysis(query)
+        logic_json = llm.interpret_query(query, cols)
+
+        st.subheader(f"Analysis Type: {analysis_type}")
+
+        # Display the interpreted logic for transparency (Explainable AI)
+        with st.expander("See AI Logic"):
+            st.json(logic_json)
+
+        # 3. Execute Analysis based on Type
+        try:
+            # --- MODE A: SURVIVAL ANALYSIS ---
+            if "survival" in analysis_type.lower():
+                condition = logic_json.get("case_condition") or logic_json.get("target_variable")
+                col, op, val = parser.parse_statement(condition)
+
+                if col and col in df.columns:
+                    # A. Kaplan-Meier Curve
+                    res = AnalysisEngine.perform_survival_analysis(df, group_col=col)
+                    st.image(res['plot_path'])
+
+                    # B. Hazard Ratio (New Feature)
+                    st.write("### Risk Quantification")
+                    hr_res = AnalysisEngine.calculate_hazard_ratio(df, group_col=col)
+
+                    if "error" not in hr_res:
+                        col1, col2, col3 = st.columns(3)
+                        col1.metric("Hazard Ratio", hr_res['hazard_ratio'])
+                        col2.metric("Confidence Interval", f"{hr_res['ci_lower']} - {hr_res['ci_upper']}")
+                        col3.metric("P-Value", f"{hr_res['p_value']:.4f}")
+                        st.caption(
+                            f"Interpretation: Patients in this group have {hr_res['hazard_ratio']}x the risk compared to baseline.")
+                    else:
+                        st.warning(f"Could not calculate Hazard Ratio: {hr_res['error']}")
+                else:
+                    st.error(f"Could not identify a valid grouping variable in query: '{condition}'")
+
+            # --- MODE B: CASE-CONTROL STUDY ---
+            elif "case" in analysis_type.lower() or "control" in analysis_type.lower():
+                # Parse Cohorts
+                case_col, case_op, case_val = parser.parse_statement(logic_json.get("case_condition", ""))
+                ctrl_col, ctrl_op, ctrl_val = parser.parse_statement(logic_json.get("control_condition", ""))
+
+                # Apply Filters
+                case_mask = parser.apply_filter(df, case_col, case_op, case_val).index
+                ctrl_mask = parser.apply_filter(df, ctrl_col, ctrl_op, ctrl_val).index
+
+                # Run Stats
+                target = logic_json.get("target_variable")
+                if target:
+                    mask_c = df.index.isin(case_mask)
+                    mask_ct = df.index.isin(ctrl_mask)
+                    results = AnalysisEngine.perform_case_control(df, mask_c, mask_ct, target)
+
+                    col1, col2 = st.columns(2)
+                    col1.metric("Odds Ratio", f"{results['odds_ratio']:.2f}")
+                    col2.metric("P-Value", f"{results['p_value']:.4f}")
+                    st.table(pd.DataFrame({
+                        "Metric": ["Case Prevalence", "Control Prevalence"],
+                        "Value": [results['case_prevalence'], results['control_prevalence']]
+                    }))
+                else:
+                    st.error("Target variable not found in query.")
+
+            # --- MODE C: GLOBAL DISCOVERY SCAN (New Feature) ---
+            elif "scan" in analysis_type.lower() or "association" in analysis_type.lower():
+                target = logic_json.get("target_variable")
+                if target:
+                    st.info(f"Scanning all variables for association with **{target}**...")
+
+                    # Scan all columns in the dataset except the target itself
+                    scan_results = AnalysisEngine.perform_global_scan(df, target, cols)
+
+                    if scan_results:
+                        st.write("### Significant Associations (P < 0.05)")
+                        scan_df = pd.DataFrame(scan_results)
+                        st.dataframe(scan_df.style.highlight_min(subset=['p_value'], color='lightgreen'))
+                    else:
+                        st.warning("No significant associations found.")
+                else:
+                    st.error("Target variable for scan not identified.")
+
+            else:
+                st.warning("Analysis type not recognized. Please try a specific question like 'Compare X vs Y'.")
+
+        except Exception as e:
+            st.error(f"Analysis Error: {str(e)}")
+            st.info("Tip: Ensure your query refers to columns that exist in the dataset.")

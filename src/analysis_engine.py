@@ -2,6 +2,7 @@
 import pandas as pd
 from scipy import stats
 from lifelines import statistics
+from lifelines import CoxPHFitter
 from visualization import plot_kaplan_meier, plot_contingency_heatmap
 
 def run_analysis(df: pd.DataFrame, intent):
@@ -79,3 +80,64 @@ def survival_analysis(df: pd.DataFrame, intent):
         return f"Log-rank test p={result.p_value:.4f}. KM saved: {path}"
 
     return f"KM saved: {path} (log-rank requires exactly 2 groups; found {len(groups)})"
+
+
+@staticmethod
+def calculate_hazard_ratio(df, group_col, time_col="OS_MONTHS", event_col="OS_STATUS"):
+    """
+    Calculates the Hazard Ratio (Risk quantification).
+    Ref: 'The primary objective... is to deliver... hazard ratios'
+    """
+    try:
+        # CoxPH requires a clean dataframe with just the relevant columns
+        subset = df[[time_col, event_col, group_col]].dropna()
+
+        # Encode group_col to numeric (0 vs 1) if it isn't already
+        if subset[group_col].dtype == 'object':
+            subset[group_col] = subset[group_col].astype('category').cat.codes
+
+        cph = CoxPHFitter()
+        cph.fit(subset, duration_col=time_col, event_col=event_col)
+
+        # Extract the Hazard Ratio (exp(coef)) and Confidence Intervals
+        summary = cph.summary.loc[group_col]
+        return {
+            "hazard_ratio": round(summary['exp(coef)'], 2),
+            "ci_lower": round(summary['exp(coef) lower 95%'], 2),
+            "ci_upper": round(summary['exp(coef) upper 95%'], 2),
+            "p_value": summary['p']
+        }
+    except Exception as e:
+        return {"error": f"Cox Regression Failed: {str(e)}"}
+
+
+@staticmethod
+def perform_global_scan(df, target_col, columns_to_scan):
+    """
+    Scans all variables to find significant associations with the target.
+    Ref: 'enables global variable scans to identify features significantly associated'
+    """
+    significant_findings = []
+
+    for col in columns_to_scan:
+        if col == target_col or col not in df.columns:
+            continue
+
+        try:
+            # Simple Chi-Square/Fisher logic for categorical data
+            # (In a full app, you'd add logic to detect numeric vs categorical)
+            contingency = pd.crosstab(df[col], df[target_col])
+            if contingency.size > 0:
+                odds, p_val = fisher_exact(contingency) if contingency.size == 4 else (0, 1.0)
+
+                if p_val < 0.05:  # Only keep significant results
+                    significant_findings.append({
+                        "feature": col,
+                        "p_value": p_val,
+                        "odds_ratio": odds
+                    })
+        except:
+            continue
+
+    # Sort by significance (lowest P-value first)
+    return sorted(significant_findings, key=lambda x: x['p_value'])

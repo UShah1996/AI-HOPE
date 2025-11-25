@@ -50,8 +50,29 @@
 #
 #         return AnalysisIntent(**parsed)
 from intents import AnalysisIntent
+from difflib import get_close_matches
 import json
 
+
+def validate_columns(self, parsed_json, available_columns):
+    """
+    Sanity checks the LLM output against the actual dataset index.
+    """
+    # Extract all columns mentioned in the JSON logic
+    mentioned_cols = []
+    if "target_variable" in parsed_json: mentioned_cols.append(parsed_json["target_variable"])
+
+    # Check if they exist
+    for col in mentioned_cols:
+        if col not in available_columns:
+            # Try to auto-correct using string similarity
+            suggestion = get_close_matches(col, available_columns, n=1)
+            if suggestion:
+                parsed_json["target_variable"] = suggestion[0]  # Auto-fix
+            else:
+                return False, f"Error: Column '{col}' not found in dataset."
+
+    return True, parsed_json
 
 class AIHOPEAgent:
     def __init__(self, model_name=None):

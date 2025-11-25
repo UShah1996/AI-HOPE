@@ -39,3 +39,4 @@ pytest_cache/
 tmp/
 *.tmp
 *.out
+outputs/*
