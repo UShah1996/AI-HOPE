@@ -40,6 +40,10 @@ class QueryParser:
         if simple_match:
             col, op, val = simple_match.groups()
             val = val.strip()
+            # Strip quotes if present (handles 'Stage IV' or "Stage IV")
+            if isinstance(val, str) and ((val.startswith("'") and val.endswith("'")) or 
+                                         (val.startswith('"') and val.endswith('"'))):
+                val = val[1:-1]
             # Try converting to float if it looks like a number
             try:
                 val = float(val)

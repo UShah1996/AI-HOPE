@@ -63,10 +63,15 @@ if st.button("Analyze"):
     with st.spinner("AI-HOPE is thinking..."):
         # 2. Determine Intent & Logic
         # Note: We ask the LLM to classify into 3 specific buckets now
-        analysis_type = llm.suggest_analysis(query)
+        suggested_type = llm.suggest_analysis(query)
         logic_json = llm.interpret_query(query, cols)
+        
+        # Prioritize logic_json analysis_type over suggested_type (more accurate)
+        analysis_type = logic_json.get("analysis_type", suggested_type).lower()
+        if not analysis_type or analysis_type == "error":
+            analysis_type = suggested_type.lower()
 
-        st.subheader(f"Analysis Type: {analysis_type}")
+        st.subheader(f"Analysis Type: {analysis_type.title()}")
 
         # Display the interpreted logic for transparency (Explainable AI)
         with st.expander("See AI Logic"):
@@ -75,7 +80,7 @@ if st.button("Analyze"):
         # 3. Execute Analysis based on Type
         try:
             # --- MODE A: SURVIVAL ANALYSIS ---
-            if "survival" in analysis_type.lower():
+            if "survival" in analysis_type:
                 # Outcome variables should never be used as grouping variables
                 outcome_vars = ["OS_STATUS", "OS_MONTHS", "SampleID"]
                 
@@ -131,7 +136,7 @@ if st.button("Analyze"):
                     st.error(f"Could not identify a valid grouping variable in query: '{condition}'")
 
             # --- MODE B: CASE-CONTROL STUDY ---
-            elif "case" in analysis_type.lower() or "control" in analysis_type.lower():
+            elif "case" in analysis_type or "control" in analysis_type:
                 # Parse Cohorts
                 case_col, case_op, case_val = parser.parse_statement(logic_json.get("case_condition", ""))
                 ctrl_col, ctrl_op, ctrl_val = parser.parse_statement(logic_json.get("control_condition", ""))
@@ -158,7 +163,7 @@ if st.button("Analyze"):
                     st.error("Target variable not found in query.")
 
             # --- MODE C: GLOBAL DISCOVERY SCAN (New Feature) ---
-            elif "scan" in analysis_type.lower() or "association" in analysis_type.lower():
+            elif "scan" in analysis_type or "association" in analysis_type:
                 target = logic_json.get("target_variable")
                 if target:
                     st.info(f"Scanning all variables for association with **{target}**...")
