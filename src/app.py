@@ -76,8 +76,38 @@ if st.button("Analyze"):
         try:
             # --- MODE A: SURVIVAL ANALYSIS ---
             if "survival" in analysis_type.lower():
-                condition = logic_json.get("case_condition") or logic_json.get("target_variable")
+                # Outcome variables should never be used as grouping variables
+                outcome_vars = ["OS_STATUS", "OS_MONTHS", "SampleID"]
+                
+                # Try multiple fields from logic_json to find grouping variable
+                condition = (logic_json.get("grouping_variable") or 
+                            logic_json.get("predictor") or
+                            logic_json.get("case_condition") or 
+                            logic_json.get("target_variable"))
+                
                 col, op, val = parser.parse_statement(condition)
+                
+                # If parsing failed but condition is a valid column name, use it directly
+                if not col and condition and condition.strip() in df.columns:
+                    col = condition.strip()
+                
+                # Validate: don't use outcome variables as grouping variables
+                if col in outcome_vars:
+                    # Try to find a valid grouping variable from other columns
+                    # Look for mutation or stage variables mentioned in the query
+                    query_lower = query.lower()
+                    found_valid_col = False
+                    for potential_col in df.columns:
+                        if (potential_col not in outcome_vars and 
+                            potential_col.lower() in query_lower):
+                            col = potential_col
+                            found_valid_col = True
+                            break
+                    
+                    # If still an outcome variable, show error
+                    if not found_valid_col or col in outcome_vars:
+                        st.error(f"Cannot use '{col}' as a grouping variable. It is an outcome variable. Please specify a grouping variable like TP53_Mutation, KRAS_mutation_status, or TUMOR_STAGE.")
+                        col = None
 
                 if col and col in df.columns:
                     # A. Kaplan-Meier Curve
