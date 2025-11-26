@@ -84,6 +84,10 @@ if st.button("Analyze"):
         # Display the interpreted logic for transparency (Explainable AI)
         with st.expander("See AI Logic"):
             st.json(logic_json)
+            # If there's an error, show the raw content for debugging
+            if "error" in logic_json and "raw_content" in logic_json:
+                st.error("LLM Response Error")
+                st.text_area("Raw LLM Response:", logic_json.get("raw_content", "No content"), height=100)
 
         # 3. Execute Analysis based on Type
         try:
@@ -173,15 +177,21 @@ if st.button("Analyze"):
             # --- MODE C: GLOBAL DISCOVERY SCAN (New Feature) ---
             elif "scan" in analysis_type or "association" in analysis_type:
                 target = logic_json.get("target_variable")
-                if target:
+                if target and target in df.columns:
                     st.info(f"Scanning all variables for association with **{target}**...")
 
-                    # Scan all columns in the dataset except the target itself
-                    scan_results = AnalysisEngine.perform_global_scan(df, target, cols)
+                    # Use actual dataframe columns, excluding the target and outcome variables
+                    columns_to_scan = [col for col in df.columns 
+                                      if col != target 
+                                      and col not in ["SampleID", "OS_STATUS", "OS_MONTHS"]]
+                    
+                    # Scan all columns - get all results to show what was tested
+                    all_results = AnalysisEngine.perform_global_scan(df, target, columns_to_scan, return_all=True)
+                    significant_results = [r for r in all_results if r['p_value'] < 0.05]
 
-                    if scan_results:
+                    if significant_results:
                         st.write("### Significant Associations (P < 0.05)")
-                        scan_df = pd.DataFrame(scan_results)
+                        scan_df = pd.DataFrame(significant_results)
                         # Create a readable effect size column
                         if 'effect_size' in scan_df.columns and 'effect_label' in scan_df.columns:
                             scan_df['Effect'] = scan_df.apply(
@@ -195,9 +205,33 @@ if st.button("Analyze"):
                         
                         st.dataframe(scan_df[display_cols].style.highlight_min(subset=['p_value'], color='lightgreen'))
                     else:
-                        st.warning("No significant associations found.")
+                        st.warning(f"No significant associations found (p < 0.05) between **{target}** and {len(columns_to_scan)} tested variables.")
+                    
+                    # Show all results in an expander for transparency
+                    if all_results:
+                        with st.expander("View All Tested Associations"):
+                            all_df = pd.DataFrame(all_results)
+                            if 'effect_size' in all_df.columns and 'effect_label' in all_df.columns:
+                                all_df['Effect'] = all_df.apply(
+                                    lambda row: f"{row['effect_size']:.4f} ({row['effect_label']})", axis=1
+                                )
+                                display_cols = ['feature', 'p_value', 'Effect']
+                            else:
+                                display_cols = ['feature', 'p_value']
+                            if 'test' in all_df.columns:
+                                display_cols.append('test')
+                            
+                            # Highlight significant ones
+                            st.dataframe(
+                                all_df[display_cols].style.apply(
+                                    lambda row: ['background-color: lightgreen' if row['p_value'] < 0.05 else '' for _ in row],
+                                    axis=1
+                                )
+                            )
+                    else:
+                        st.caption(f"Tested {len(columns_to_scan)} variables: {', '.join(columns_to_scan)}")
                 else:
-                    st.error("Target variable for scan not identified.")
+                    st.error(f"Target variable '{target}' not found in dataset. Available columns: {', '.join(df.columns.tolist())}")
 
             else:
                 st.warning("Analysis type not recognized. Please try a specific question like 'Compare X vs Y'.")

@@ -98,12 +98,18 @@ class AnalysisEngine:
             return {"error": str(e)}
 
     @staticmethod
-    def perform_global_scan(df, target_col, columns_to_scan):
+    def perform_global_scan(df, target_col, columns_to_scan, return_all=False):
         """
         Scans all variables to find significant associations with the target.
         Uses Fisher's exact test for 2x2 tables and chi-square for larger tables.
+        
+        Args:
+            df: DataFrame with the data
+            target_col: Column name to test associations against
+            columns_to_scan: List of column names to test
+            return_all: If True, return all results. If False, only return significant (p < 0.05)
         """
-        significant_findings = []
+        findings = []
 
         for col in columns_to_scan:
             if col == target_col or col not in df.columns:
@@ -165,8 +171,9 @@ class AnalysisEngine:
                         effect_size = 0
                         effect_label = "N/A"
 
-                if p_val < 0.05:
-                    significant_findings.append({
+                # Add to findings if significant OR if return_all is True
+                if return_all or p_val < 0.05:
+                    findings.append({
                         "feature": col,
                         "p_value": round(p_val, 4),
                         "effect_size": round(effect_size, 4),
@@ -177,4 +184,4 @@ class AnalysisEngine:
                 # Skip variables that can't be analyzed
                 continue
 
-        return sorted(significant_findings, key=lambda x: x['p_value'])
+        return sorted(findings, key=lambda x: x['p_value'])

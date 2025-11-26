@@ -22,12 +22,14 @@ class LLMAgent:
         Available Data Attributes: {column_names}
 
         RULES:
-        1. Identify the 'target' variable (e.g., Survival, Mutation Status).
-        2. Identify the 'cohort' definitions (e.g., Late Stage vs Early Stage).
+        1. Identify the 'target' variable (e.g., Survival, Mutation Status, Tumor Stage).
+        2. Identify the 'cohort' definitions (e.g., Late Stage vs Early Stage) if applicable.
         3. Use ONLY these operators: "is", "is not", "greater than", "less than", "is in".
+        4. For association scan queries, identify the target variable that other variables should be tested against.
 
-        EXAMPLE INPUT: "Compare TP53 mutations in early vs late stage CRC"
-        EXAMPLE JSON OUTPUT:
+        EXAMPLE 1 - Case Control:
+        INPUT: "Compare TP53 mutations in early vs late stage CRC"
+        OUTPUT:
         {{
             "analysis_type": "case_control",
             "target_variable": "TP53_Mutation",
@@ -35,7 +37,23 @@ class LLMAgent:
             "control_condition": "TUMOR_STAGE is in {{'Stage I', 'Stage II'}}"
         }}
 
-        Return ONLY valid JSON. Do not add conversational text.
+        EXAMPLE 2 - Association Scan:
+        INPUT: "What variables are linked to TUMOR_STAGE?"
+        OUTPUT:
+        {{
+            "analysis_type": "association_scan",
+            "target_variable": "TUMOR_STAGE"
+        }}
+
+        EXAMPLE 3 - Survival Analysis:
+        INPUT: "Compare survival between TP53 mutated and wild-type patients"
+        OUTPUT:
+        {{
+            "analysis_type": "survival",
+            "grouping_variable": "TP53_Mutation"
+        }}
+
+        Return ONLY valid JSON. Do not add conversational text, explanations, or markdown formatting.
         """
 
         try:
@@ -44,25 +62,44 @@ class LLMAgent:
                 {'role': 'user', 'content': user_query}
             ])
 
-            content = response['message']['content']
+            content = response['message']['content'].strip()
 
             # --- IMPROVED CLEANING LOGIC ---
             # 1. Try to find JSON inside markdown blocks
             if "```json" in content:
                 content = content.split("```json")[1].split("```")[0].strip()
+            elif "```" in content:
+                # Handle generic code blocks
+                parts = content.split("```")
+                if len(parts) > 1:
+                    content = parts[1].strip()
+                    if content.startswith("json"):
+                        content = content[4:].strip()
 
             # 2. If that fails, look for the first '{' and last '}'
             match = re.search(r"(\{.*\})", content, re.DOTALL)
             if match:
                 content = match.group(1)
+            
+            # 3. Remove any leading/trailing whitespace or newlines
+            content = content.strip()
             # -------------------------------
 
-            return json.loads(content)
+            parsed_json = json.loads(content)
+            return parsed_json
 
+        except json.JSONDecodeError as e:
+            # Include the actual content in the error for debugging
+            error_msg = f"LLM Parsing Failed: {str(e)}"
+            if 'content' in locals():
+                error_msg += f"\nRaw LLM Response: {content[:200]}..."  # First 200 chars
+            return {"error": error_msg, "raw_content": content if 'content' in locals() else "No content received"}
         except Exception as e:
-            # Print the raw content to the terminal for debugging
-            print(f"DEBUG: Failed LLM Content: {content if 'content' in locals() else 'No content'}")
-            return {"error": f"LLM Parsing Failed: {str(e)}"}
+            # Handle other exceptions (e.g., Ollama connection issues)
+            error_msg = f"LLM Error: {str(e)}"
+            if 'content' in locals():
+                error_msg += f"\nRaw LLM Response: {content[:200]}..."
+            return {"error": error_msg, "raw_content": content if 'content' in locals() else "No content received"}
 
     def suggest_analysis(self, query):
         """
