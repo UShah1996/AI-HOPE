@@ -66,10 +66,18 @@ if st.button("Analyze"):
         suggested_type = llm.suggest_analysis(query)
         logic_json = llm.interpret_query(query, cols)
         
+        # Check for explicit association scan keywords in query (highest priority)
+        query_lower = query.lower()
+        association_keywords = ["everything associated", "tell me everything", "what variables", "what is associated", 
+                               "global scan", "scan for", "find associations", "all associations"]
+        
+        if any(keyword in query_lower for keyword in association_keywords):
+            analysis_type = "association scan"
         # Prioritize logic_json analysis_type over suggested_type (more accurate)
-        analysis_type = logic_json.get("analysis_type", suggested_type).lower()
-        if not analysis_type or analysis_type == "error":
-            analysis_type = suggested_type.lower()
+        else:
+            analysis_type = logic_json.get("analysis_type", suggested_type).lower()
+            if not analysis_type or analysis_type == "error":
+                analysis_type = suggested_type.lower()
 
         st.subheader(f"Analysis Type: {analysis_type.title()}")
 
@@ -174,7 +182,18 @@ if st.button("Analyze"):
                     if scan_results:
                         st.write("### Significant Associations (P < 0.05)")
                         scan_df = pd.DataFrame(scan_results)
-                        st.dataframe(scan_df.style.highlight_min(subset=['p_value'], color='lightgreen'))
+                        # Create a readable effect size column
+                        if 'effect_size' in scan_df.columns and 'effect_label' in scan_df.columns:
+                            scan_df['Effect'] = scan_df.apply(
+                                lambda row: f"{row['effect_size']:.4f} ({row['effect_label']})", axis=1
+                            )
+                            display_cols = ['feature', 'p_value', 'Effect']
+                        else:
+                            display_cols = ['feature', 'p_value']
+                        if 'test' in scan_df.columns:
+                            display_cols.append('test')
+                        
+                        st.dataframe(scan_df[display_cols].style.highlight_min(subset=['p_value'], color='lightgreen'))
                     else:
                         st.warning("No significant associations found.")
                 else:

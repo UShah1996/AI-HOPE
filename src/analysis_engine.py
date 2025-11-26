@@ -1,6 +1,6 @@
 import pandas as pd
 import numpy as np
-from scipy.stats import fisher_exact
+from scipy.stats import fisher_exact, chi2_contingency
 from lifelines import KaplanMeierFitter, CoxPHFitter
 import matplotlib.pyplot as plt
 import os
@@ -101,6 +101,7 @@ class AnalysisEngine:
     def perform_global_scan(df, target_col, columns_to_scan):
         """
         Scans all variables to find significant associations with the target.
+        Uses Fisher's exact test for 2x2 tables and chi-square for larger tables.
         """
         significant_findings = []
 
@@ -109,18 +110,71 @@ class AnalysisEngine:
                 continue
 
             try:
+                # Create contingency table
                 contingency = pd.crosstab(df[col], df[target_col])
-                if contingency.size > 0:
-                    # Use Fisher (if 2x2) or Chi-square logic simplified here
-                    odds, p_val = fisher_exact(contingency) if contingency.size == 4 else (0, 1.0)
+                
+                # Remove rows/columns with all zeros
+                contingency = contingency.loc[(contingency != 0).any(axis=1), (contingency != 0).any(axis=0)]
+                
+                if contingency.size == 0 or contingency.shape[0] < 2 or contingency.shape[1] < 2:
+                    continue
+                
+                # For 2x2 tables, use Fisher's exact test
+                if contingency.size == 4 and contingency.shape == (2, 2):
+                    odds, p_val = fisher_exact(contingency)
+                    test_stat = odds
+                    test_name = "Fisher's Exact"
+                # For larger tables, use chi-square test
+                else:
+                    # Check if expected frequencies are sufficient (all >= 5 for chi-square)
+                    chi2, p_val, dof, expected = chi2_contingency(contingency)
+                    # If expected frequencies are too small, use Fisher's exact (if table is small enough)
+                    if expected.min() < 5 and contingency.size <= 20:
+                        # For small tables, try Fisher's exact
+                        try:
+                            odds, p_val = fisher_exact(contingency)
+                            test_stat = odds
+                            test_name = "Fisher's Exact"
+                        except:
+                            # Fall back to chi-square even if expected < 5
+                            test_stat = chi2
+                            test_name = "Chi-square"
+                    else:
+                        test_stat = chi2
+                        test_name = "Chi-square"
+                
+                # Calculate effect size (Cramér's V for larger tables, OR for 2x2)
+                if contingency.size == 4 and contingency.shape == (2, 2):
+                    effect_size = odds
+                    effect_label = "Odds Ratio"
+                else:
+                    # Cramér's V for larger tables
+                    n = contingency.sum().sum()
+                    min_dim = min(contingency.shape) - 1
+                    if min_dim > 0 and n > 0:
+                        # Get chi2 value (may have been calculated above)
+                        if 'chi2' in locals() and chi2 > 0:
+                            cramers_v = np.sqrt(chi2 / (n * min_dim))
+                        else:
+                            # Recalculate chi-square if needed
+                            chi2_recalc, _, _, _ = chi2_contingency(contingency)
+                            cramers_v = np.sqrt(chi2_recalc / (n * min_dim)) if chi2_recalc > 0 else 0
+                        effect_size = cramers_v
+                        effect_label = "Cramér's V"
+                    else:
+                        effect_size = 0
+                        effect_label = "N/A"
 
-                    if p_val < 0.05:
-                        significant_findings.append({
-                            "feature": col,
-                            "p_value": p_val,
-                            "odds_ratio": odds
-                        })
-            except:
+                if p_val < 0.05:
+                    significant_findings.append({
+                        "feature": col,
+                        "p_value": round(p_val, 4),
+                        "effect_size": round(effect_size, 4),
+                        "effect_label": effect_label,
+                        "test": test_name
+                    })
+            except Exception as e:
+                # Skip variables that can't be analyzed
                 continue
 
         return sorted(significant_findings, key=lambda x: x['p_value'])
