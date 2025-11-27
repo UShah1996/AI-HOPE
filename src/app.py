@@ -4,6 +4,7 @@ import os
 from llm_agent import LLMAgent
 from query_parser import QueryParser
 from analysis_engine import AnalysisEngine
+from safety_layer import load_dataset_schema, validate_analysis_plan, ValidationError, AnalysisPlan
 
 # --- Configuration ---
 DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
@@ -88,6 +89,47 @@ if st.button("Analyze"):
             if "error" in logic_json and "raw_content" in logic_json:
                 st.error("LLM Response Error")
                 st.text_area("Raw LLM Response:", logic_json.get("raw_content", "No content"), height=100)
+
+        # 2.5. Safety & Verification Layer
+        # Convert logic_json to AnalysisPlan format and validate
+        # Skip validation if LLM returned an error
+        if "error" not in logic_json:
+            try:
+                dataset_path = os.path.join(DATA_DIR, selected_dataset)
+                
+                # Build AnalysisPlan from logic_json
+                plan: AnalysisPlan = {
+                    "mode": analysis_type,
+                    "dataset_path": dataset_path,
+                }
+                
+                # Map existing fields to AnalysisPlan structure
+                if "grouping_variable" in logic_json:
+                    plan["group_by"] = logic_json["grouping_variable"]
+                    plan["grouping_variable"] = logic_json["grouping_variable"]
+                if "target_variable" in logic_json:
+                    plan["target"] = logic_json["target_variable"]
+                    plan["target_variable"] = logic_json["target_variable"]
+                if "case_condition" in logic_json:
+                    plan["case_condition"] = logic_json["case_condition"]
+                if "control_condition" in logic_json:
+                    plan["control_condition"] = logic_json["control_condition"]
+                
+                # Set defaults for survival analysis
+                if "survival" in analysis_type:
+                    plan["time_col"] = "OS_MONTHS"
+                    plan["event_col"] = "OS_STATUS"
+                
+                # Load schema and validate
+                schema = load_dataset_schema(dataset_path)
+                validate_analysis_plan(plan, schema)
+                
+            except (ValidationError, FileNotFoundError) as e:
+                st.error(f"Safety check failed: {str(e)}")
+                st.info("Please check your query and ensure all referenced columns exist in the dataset.")
+                st.stop()
+            except Exception as e:
+                st.warning(f"Safety layer warning: {str(e)}. Proceeding with analysis...")
 
         # 3. Execute Analysis based on Type
         try:
