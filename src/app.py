@@ -52,39 +52,37 @@ else:
     st.info("Please add a dataset to the 'data/' folder.")
     st.stop()
 
+# ... (Previous imports and data loading code remains the same) ...
+
 # Main Chat Interface
 query = st.text_input("Describe your research question:",
-                      placeholder="e.g., Tell me everything associated with overall survival")
+                      placeholder="e.g., Compare survival outcomes in KRAS mutated vs wild-type patients")
 
 if st.button("Analyze"):
-    # 1. Initialize Agents
     llm = LLMAgent()
     parser = QueryParser()
 
     with st.spinner("AI-HOPE is thinking..."):
-        # 2. Determine Intent & Logic
-        # Note: We ask the LLM to classify into 3 specific buckets now
-        suggested_type = llm.suggest_analysis(query)
-        logic_json = llm.interpret_query(query, cols)
-        
-        # Check for explicit association scan keywords in query (highest priority)
-        query_lower = query.lower()
-        association_keywords = ["everything associated", "tell me everything", "what variables", "what is associated", 
-                               "global scan", "scan for", "find associations", "all associations"]
-        
-        if any(keyword in query_lower for keyword in association_keywords):
-            analysis_type = "association scan"
-        # Prioritize logic_json analysis_type over suggested_type (more accurate)
-        else:
-            analysis_type = logic_json.get("analysis_type", suggested_type).lower()
-            if not analysis_type or analysis_type == "error":
-                analysis_type = suggested_type.lower()
 
-        st.subheader(f"Analysis Type: {analysis_type.title()}")
+        # --- NEW: Step 1: Input Validation ---
+        clarification = llm.check_clarification_needed(query, cols)
 
-        # Display the interpreted logic for transparency (Explainable AI)
-        with st.expander("See AI Logic"):
+        if clarification:
+            st.warning("⚠️ Ambiguous Query Detected")
+            st.info(f"AI-HOPE needs clarification: **{clarification}**")
+            st.caption("Please update your question above to be more specific.")
+            st.stop()  # Halt execution here
+
+        # --- Existing Logic (Now Powered by Planner + Verifier) ---
+        analysis_type = llm.suggest_analysis(query)
+        logic_json = llm.interpret_query(query, cols)  # This now calls verify_logic internally
+
+        st.subheader(f"Analysis Type: {analysis_type}")
+
+        with st.expander("See AI Logic (Verified)"):
             st.json(logic_json)
+
+            # ... (Rest of your existing 'try/except' analysis block remains exactly the same) ...
             # If there's an error, show the raw content for debugging
             if "error" in logic_json and "raw_content" in logic_json:
                 st.error("LLM Response Error")

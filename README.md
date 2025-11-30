@@ -15,26 +15,64 @@ The growing complexity of clinical cancer research requires tools that can bridg
 
 ---
 
-## 🏗️ System Architecture
+## 🏗️ System Architecture: Multi-Agent Workflow
 
-This implementation follows the three-stage workflow described in the original paper:
+To ensure high reliability and reduce hallucinations, this implementation uses a **Multi-Agent Architecture** that validates inputs and logic before execution:
 
-1.  **Conversational Setup (GUI):** A user interacts with the system via a Graphical User Interface (GUI), submitting natural language queries.
-2.  **Logic Extraction (The "Brain"):** A local LLM (Llama3) acts as a reasoning agent. It does *not* analyze the data directly; instead, it interprets user instructions and converts them into executable logic (e.g., parsing "Age > 50" into a filter operation).
-3.  **Automated Analysis (The Engine):** The system executes the generated logic against local data files to perform prevalence testing, association analysis, and survival modeling.
+
+
+[Image of multi-agent system architecture]
+
+graph TD
+    User([User Query]) --> Clarifier[🕵️ Agent 1: Clarifier<br/>(Input Validator)]
+    
+    Clarifier -- "Ambiguous?" --> Stop([⛔ Stop & Ask User])
+    Clarifier -- "Clear" --> Planner[🧠 Agent 2: Planner<br/>(Logic Generator)]
+    
+    Planner --> LogicJSON[Raw JSON Logic]
+    
+    LogicJSON --> Verifier[✅ Agent 3: Verifier<br/>(Hallucination Check)]
+    
+    Verifier -- "Hallucination Detected" --> Fix[Fix Column Names]
+    Fix --> Verifier
+    
+    Verifier -- "Verified" --> Engine[⚙️ Statistical Engine]
+    
+    Engine --> Output([Final Analysis Output])
+    
+    subgraph "Local LLM Environment (Ollama)"
+    Clarifier
+    Planner
+    Verifier
+    end
+
+
+1.  **Agent 1: The Clarifier (Input Validator)**
+    * **Role:** Acts as a "Gatekeeper." It analyzes the user's query for ambiguity.
+    * **Action:** If a query is too vague (e.g., "Analyze this"), it halts execution and asks the user specific clarifying questions instead of guessing.
+
+2.  **Agent 2: The Planner (Logic Generator)**
+    * **Role:** Converts natural language into structured logic.
+    * **Action:** It identifies the target variable and cohort conditions, outputting a raw JSON plan (e.g., `Target: KRAS_Mutation`, `Case: Stage IV`).
+
+3.  **Agent 3: The Verifier (Hallucination Check)**
+    * **Role:** Acts as a "Code Reviewer."
+    * **Action:** It compares the Planner's JSON against the *actual* dataset columns. If the Planner hallucinates a column name (e.g., `KRAS_Status`), the Verifier corrects it to the real column name (`KRAS_mutation_status`) before the code crashes.
+
+4.  **Statistical Engine:**
+    * [cite_start]Executes the verified logic to perform prevalence testing, association analysis, and survival modeling[cite: 55].
 
 ---
 
 ## 📂 Data Formatting Requirements
 
-To ensure the agent can autonomously read your data, datasets must be organized into specific folders containing **three mandatory components**:
+[cite_start]To ensure the agent can autonomously read your data, datasets must be organized into specific folders containing **three mandatory components** [cite: 74-76]:
 
 1.  **`README.txt`**: A text file providing an overview of the dataset.
 2.  **`index.txt`**: A list of key attributes (column headers) available for analysis.
 3.  **`data_table.tsv`**: The main tab-delimited data table where rows represent samples and columns represent attributes.
 
 **Directory Structure Example:**
-
 ```text
 data/
 └── your_dataset_name/
@@ -70,19 +108,19 @@ AI-HOPE supports two primary modes of analysis triggered by natural language:
 
 2. Survival Analysis
 * Compare outcomes between groups using Kaplan-Meier curves and Hazard Ratios.
-* Example Query: "Compare survival outcomes between FOLFOX-treated patients with and without KRAS mutations.".
+* Example Query: "Compare survival outcomes between FOLFOX-treated patients with and without KRAS mutations..
 * Mechanism: The system filters for treated patients, stratifies by mutation status (KRAS_mutation_status is 1 vs 0), and computes progression-free survival statistics .
 
 3. Global Association Scans
 * Identify all variables significantly associated with a specific outcome.
-* Example Query: "Tell me everything associated with overall survival in colon cancer.".
+* Example Query: "Tell me everything associated with overall survival in colon cancer..
 * Mechanism: The agent scans all available variables in the index.txt to identify significant associations.
 
 ## Sample Questions
 
 Based on the capabilities described in the paper and the dummy data we generated (which contains TUMOR_STAGE, KRAS_mutation_status, TP53_Mutation, OS_MONTHS, and OS_STATUS), here are sample questions you can ask to test each mode of your AI-HOPE agent.
 
-1. Survival Analysis (Kaplan-Meier & Hazard Ratios)
+**1. Survival Analysis (Kaplan-Meier & Hazard Ratios)**
 
 Tests if the agent can generate survival curves and calculate risk.
 
@@ -91,7 +129,7 @@ Tests if the agent can generate survival curves and calculate risk.
 * Show me the survival curve for TUMOR_STAGE.
 * Analyze the survival difference between patients with and without KRAS mutations.
 
-2. Case-Control Studies (Odds Ratios)
+**2. Case-Control Studies (Odds Ratios)**
 
 Tests if the agent can define "Case" vs "Control" groups and check for enrichment.
   * Compare TP53_Mutation frequency in Stage I vs Stage IV.
@@ -100,7 +138,7 @@ Tests if the agent can define "Case" vs "Control" groups and check for enrichmen
   
 (Note: This tests the logic parser's ability to map "early-stage" to specific values if you prompted it, or you can be specific like "Stage I").
 
-3. Global Discovery (Association Scan)
+**3. Global Discovery (Association Scan)**
 
 Tests the "Loop" function that checks all variables against a target.
 
@@ -108,7 +146,7 @@ Tests the "Loop" function that checks all variables against a target.
 * What variables are linked to TUMOR_STAGE?
 * Run a global scan for associations with KRAS_mutation_status.
 
-4. Complex Logic (Testing the Parser)
+**4. Complex Logic (Testing the Parser)**
 
 Tests if the system handles parenthetical logic or multi-condition groups.
 
@@ -126,3 +164,9 @@ This software is designed for local deployment only. To maintain the security of
 This implementation is based on:
 
 AI-HOPE: an AI-driven conversational agent for enhanced clinical and genomic data integration in precision medicine research Bioinformatics, 2025, 41(7), btaf359. https://doi.org/10.1093/bioinformatics/btaf359.
+
+### **Why this update is important:**
+* It explicitly mentions the **Clarifier** and **Verifier** agents in the "System Architecture" section. This shows anyone reading your repo (including your professor) that you successfully implemented the reliability feedback!
+
+**Next Step:**
+Would you like to run a final test case using a vague query (like "Analyze data") to see the **Clarifier Agent** in action before you commit this?
