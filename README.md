@@ -21,30 +21,32 @@ To ensure high reliability and reduce hallucinations, this implementation uses a
 
 
 
-[Image of multi-agent system architecture]
+Image of multi-agent system architecture
 
+```mermaid
 graph TD
-    User([User Query]) --> Clarifier[🕵️ Agent 1: Clarifier<br/>(Input Validator)]
+    User([User Query]) --> Clarifier[Agent 1: Clarifier<br/>Input Validator]
     
-    Clarifier -- "Ambiguous?" --> Stop([⛔ Stop & Ask User])
-    Clarifier -- "Clear" --> Planner[🧠 Agent 2: Planner<br/>(Logic Generator)]
+    Clarifier -- "Ambiguous?" --> Stop([Stop & Ask User])
+    Clarifier -- "Clear" --> Planner[Agent 2: Planner<br/>Logic Generator]
     
     Planner --> LogicJSON[Raw JSON Logic]
     
-    LogicJSON --> Verifier[✅ Agent 3: Verifier<br/>(Hallucination Check)]
+    LogicJSON --> Verifier[Agent 3: Verifier<br/>Hallucination Check]
     
     Verifier -- "Hallucination Detected" --> Fix[Fix Column Names]
     Fix --> Verifier
     
-    Verifier -- "Verified" --> Engine[⚙️ Statistical Engine]
+    Verifier -- "Verified" --> Engine[Statistical Engine]
     
     Engine --> Output([Final Analysis Output])
     
-    subgraph "Local LLM Environment (Ollama)"
+    subgraph "Local LLM Environment"
     Clarifier
     Planner
     Verifier
     end
+```
 
 
 1.  **Agent 1: The Clarifier (Input Validator)**
@@ -164,9 +166,3 @@ This software is designed for local deployment only. To maintain the security of
 This implementation is based on:
 
 AI-HOPE: an AI-driven conversational agent for enhanced clinical and genomic data integration in precision medicine research Bioinformatics, 2025, 41(7), btaf359. https://doi.org/10.1093/bioinformatics/btaf359.
-
-### **Why this update is important:**
-* It explicitly mentions the **Clarifier** and **Verifier** agents in the "System Architecture" section. This shows anyone reading your repo (including your professor) that you successfully implemented the reliability feedback!
-
-**Next Step:**
-Would you like to run a final test case using a vague query (like "Analyze data") to see the **Clarifier Agent** in action before you commit this?
