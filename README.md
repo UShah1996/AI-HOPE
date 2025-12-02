@@ -114,26 +114,7 @@ Ensure Ollama is running and pull the Llama3 model (or the specific model versio
    * Bash: streamlit run src/app.py
 
 ## 🧪 Capabilities & Usage
-AI-HOPE supports two primary modes of analysis triggered by natural language:
-
-1. Case-Control Studies
-* Define cohorts based on clinical criteria and compare them.
-* Example Query: "Does the frequency of TP53 mutations differ between early- and late-stage CRC?".
-* Mechanism: The system defines "Case" (Late Stage) and "Control" (Early Stage) groups using logical expressions like TUMOR_STAGE is in {T3, T4} and performs an Odds Ratio test .
-
-2. Survival Analysis
-* Compare outcomes between groups using Kaplan-Meier curves and Hazard Ratios.
-* Example Query: "Compare survival outcomes between FOLFOX-treated patients with and without KRAS mutations..
-* Mechanism: The system filters for treated patients, stratifies by mutation status (KRAS_mutation_status is 1 vs 0), and computes progression-free survival statistics .
-
-3. Global Association Scans
-* Identify all variables significantly associated with a specific outcome.
-* Example Query: "Tell me everything associated with overall survival in colon cancer..
-* Mechanism: The agent scans all available variables in the index.txt to identify significant associations.
-
-## Sample Questions
-
-Based on the capabilities described in the paper and the dummy data we generated (which contains TUMOR_STAGE, KRAS_mutation_status, TP53_Mutation, OS_MONTHS, and OS_STATUS), here are sample questions you can ask to test each mode of your AI-HOPE agent.
+AI-HOPE supports three primary modes of analysis triggered by natural language:
 
 ### 1. Case-Control Studies
 Define cohorts based on clinical criteria and compare them.
@@ -149,6 +130,33 @@ Compare outcomes between groups using Kaplan-Meier curves and Hazard Ratios.
 Identify all variables significantly associated with a specific outcome.
 * *Example Query:* "Run a global association scan to find variables correlated with OS_STATUS."
 * *Mechanism:* The agent scans all available variables in the `index.txt` to identify significant associations.
+
+## 🧪 Sample Queries to Try
+
+### 1. Survival Analysis (Kaplan-Meier & Risk)
+*These queries trigger the survival engine, generating curves and calculating Hazard Ratios.*
+
+* **Standard:** "Perform a survival analysis grouping patients by `KRAS_mutation_status`."
+* **Comparison:** "Compare survival outcomes between patients with and without `TP53_Mutation`."
+* **Natural Language:** "Does having a late-stage tumor affect patient survival?"
+
+### 2. Case-Control Studies (Enrichment)
+*These queries define two specific groups and check for statistical enrichment (Odds Ratio).*
+
+* **Explicit Logic:** "Compare the frequency of `TP53_Mutation` in patients where `TUMOR_STAGE` is 'Stage IV' versus 'Stage I'."
+* **Clinical Question:** "Is `KRAS_mutation_status` more common in late-stage cancer compared to early-stage?"
+
+### 3. Global Discovery (Association Scan)
+*These queries scan the entire dataset to find significant correlations without a specific hypothesis.*
+
+* **Targeted Scan:** "Run a global association scan for variables correlated with `OS_STATUS`."
+* **Open-Ended:** "What clinical features are significantly associated with `TUMOR_STAGE`?"
+
+### 4. Reliability Tests (Multi-Agent System)
+*Test the robustness of the Clarifier and Verifier agents.*
+
+* **Ambiguity Check:** "Is the data good?" -> *Should trigger a Clarification Warning.*
+* **Hallucination Check:** "Compare survival for `KRAS_Status`." -> *The Verifier should auto-correct `KRAS_Status` to `KRAS_mutation_status`.*
 
 ## 🛡️ Privacy Note
 This software is designed for local deployment only. To maintain the security of sensitive clinical data, do not modify the code to send data to external APIs (e.g., OpenAI, Anthropic). The logic extraction is handled entirely by the local Llama3 instance to avoid online data exchange.
