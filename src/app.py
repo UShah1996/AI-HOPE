@@ -1,16 +1,15 @@
 import streamlit as st
 import pandas as pd
 import os
+import matplotlib.pyplot as plt
 from llm_agent import LLMAgent
 from query_parser import QueryParser
 from analysis_engine import AnalysisEngine
 
-# --- Configuration ---
 DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
 st.set_page_config(page_title="AI-HOPE Agent", layout="wide")
 
 
-# --- Helper Functions ---
 def load_data(dataset_name):
     path = os.path.join(DATA_DIR, dataset_name)
     try:
@@ -22,11 +21,9 @@ def load_data(dataset_name):
         return None, None
 
 
-# --- Main App Interface ---
 st.title("🧬 AI-HOPE: Precision Medicine Agent")
 st.markdown("*Locally deployed clinical research assistant [Bioinformatics 2025]*")
 
-# Sidebar: Data Selection
 if os.path.exists(DATA_DIR):
     available_datasets = [d for d in os.listdir(DATA_DIR) if os.path.isdir(os.path.join(DATA_DIR, d))]
 else:
@@ -47,7 +44,6 @@ else:
     st.info("Please add a dataset to the 'data/' folder.")
     st.stop()
 
-# Main Chat Interface
 query = st.text_input("Describe your research question:",
                       placeholder="e.g., Compare survival outcomes in KRAS mutated vs wild-type patients")
 
@@ -57,56 +53,49 @@ if st.button("Analyze"):
 
     with st.spinner("AI-HOPE is thinking..."):
 
-        # 1. Validation Check
-        # We relaxed the Clarifier in llm_agent.py, but if it still triggers, show warning.
         clarification = llm.check_clarification_needed(query, cols)
-
         if clarification:
             st.warning("⚠️ Ambiguous Query Detected")
             st.info(f"AI-HOPE needs clarification: **{clarification}**")
             st.stop()
 
-            # 2. Logic Generation
-        analysis_type = llm.suggest_analysis(query)
+        analysis_category = llm.suggest_analysis(query)
         logic_json = llm.interpret_query(query, cols)
 
-        st.subheader(f"Analysis Type: {analysis_type}")
+        st.subheader(f"Analysis Category: {analysis_category}")
         with st.expander("See AI Logic (Verified)"):
             st.json(logic_json)
 
         try:
-            # --- ROBUST LOGIC ROUTING (Fixes "Analysis Not Recognized" Errors) ---
+            cat_str = str(analysis_category).lower()
+            json_type = logic_json.get("analysis_type", "").lower()
 
-            # Convert to lower case for easy matching
-            atype = analysis_type.lower()
+            final_mode = "unknown"
+            if "survival" in cat_str or "survival" in json_type or "1" in cat_str:
+                final_mode = "survival"
+            elif "case" in cat_str or "control" in cat_str or "2" in cat_str:
+                final_mode = "case_control"
+            elif "scan" in cat_str or "association" in cat_str or "3" in cat_str:
+                final_mode = "scan"
 
-            # MODE A: SURVIVAL ANALYSIS
-            if "survival" in atype:
-                # Look for ANY condition that acts as a group
-                condition = (
-                        logic_json.get("group_by") or
-                        logic_json.get("case_condition") or
-                        logic_json.get("target_variable")
-                )
+            # --- MODE A: SURVIVAL ANALYSIS ---
+            if final_mode == "survival":
+                condition = (logic_json.get("group_by") or logic_json.get("target_variable") or logic_json.get(
+                    "case_condition"))
 
-                # Try to resolve the column name
+                # Try to resolve column
                 col = None
-                if condition:
-                    if condition in df.columns:
-                        col = condition
-                    else:
-                        # Try parsing "Column is Value"
-                        parsed_col, _, _ = parser.parse_statement(condition)
-                        if parsed_col in df.columns:
-                            col = parsed_col
+                if condition and condition in df.columns:
+                    col = condition
+                elif condition:
+                    parsed_col, _, _ = parser.parse_statement(condition)
+                    if parsed_col in df.columns: col = parsed_col
 
                 if col:
                     res = AnalysisEngine.perform_survival_analysis(df, group_col=col)
                     st.image(res['plot_path'])
-
                     st.write("### Risk Quantification")
                     hr_res = AnalysisEngine.calculate_hazard_ratio(df, group_col=col)
-
                     if "error" not in hr_res:
                         c1, c2, c3 = st.columns(3)
                         c1.metric("Hazard Ratio", hr_res['hazard_ratio'])
@@ -115,50 +104,65 @@ if st.button("Analyze"):
                     else:
                         st.warning(f"Hazard Ratio Error: {hr_res['error']}")
                 else:
-                    st.error(f"Could not identify grouping variable. Found condition: '{condition}'")
+                    st.error(f"Could not identify a grouping variable. AI logic found: '{condition}'")
 
-            # MODE B: CASE-CONTROL STUDY
-            elif "case" in atype and "control" in atype:
-                case_col, case_op, case_val = parser.parse_statement(logic_json.get("case_condition", ""))
-                ctrl_col, ctrl_op, ctrl_val = parser.parse_statement(logic_json.get("control_condition", ""))
-
-                case_mask = parser.apply_filter(df, case_col, case_op, case_val).index
-                ctrl_mask = parser.apply_filter(df, ctrl_col, ctrl_op, ctrl_val).index
-
+            # --- MODE B: CASE-CONTROL STUDY ---
+            elif final_mode == "case_control":
+                # Check if we have explicit groups (Comparison) or just a target (Prevalence)
+                case_raw = logic_json.get("case_condition")
+                control_raw = logic_json.get("control_condition")
                 target = logic_json.get("target_variable")
-                if target:
-                    mask_c = df.index.isin(case_mask)
-                    mask_ct = df.index.isin(ctrl_mask)
-                    results = AnalysisEngine.perform_case_control(df, mask_c, mask_ct, target)
 
-                    col1, col2 = st.columns(2)
-                    col1.metric("Odds Ratio", f"{results['odds_ratio']:.2f}")
-                    col2.metric("P-Value", f"{results['p_value']:.4f}")
-                    st.table(pd.DataFrame({
-                        "Metric": ["Case Prevalence", "Control Prevalence"],
-                        "Value": [results['case_prevalence'], results['control_prevalence']]
-                    }))
-                else:
-                    st.error("Target variable not found in query logic.")
+                if target and not case_raw:
+                    # FALLBACK: Clinical Prevalence (Single variable check)
+                    st.info(f"Analyzing Clinical Prevalence for **{target}**")
+                    counts = df[target].value_counts()
+                    st.bar_chart(counts)
+                    st.table(counts)
 
-            # MODE C: GLOBAL SCAN
-            elif "scan" in atype or "association" in atype:
-                target = logic_json.get("target_variable")
-                if target:
-                    st.info(f"Scanning all variables for association with **{target}**...")
-                    scan_results = AnalysisEngine.perform_global_scan(df, target, cols)
+                elif case_raw:
+                    # Standard Comparison
+                    case_col, case_op, case_val = parser.parse_statement(case_raw)
+                    ctrl_col, ctrl_op, ctrl_val = parser.parse_statement(control_raw)
 
-                    if scan_results:
-                        st.write("### Significant Associations (P < 0.05)")
-                        st.dataframe(
-                            pd.DataFrame(scan_results).style.highlight_min(subset=['p_value'], color='lightgreen'))
+                    if not ctrl_col and case_col:  # Inverse logic if control missing
+                        ctrl_col, ctrl_op = case_col, "not in" if case_op == "in" else "!="
+                        ctrl_val = case_val
+
+                    case_mask = parser.apply_filter(df, case_col, case_op, case_val).index
+                    ctrl_mask = parser.apply_filter(df, ctrl_col, ctrl_op, ctrl_val).index
+
+                    if target:
+                        results = AnalysisEngine.perform_case_control(df, df.index.isin(case_mask),
+                                                                      df.index.isin(ctrl_mask), target)
+                        col1, col2 = st.columns(2)
+                        col1.metric("Odds Ratio", f"{results['odds_ratio']:.2f}")
+                        col2.metric("P-Value", f"{results['p_value']:.4f}")
+                        st.table(pd.DataFrame({
+                            "Metric": ["Case Prevalence", "Control Prevalence"],
+                            "Value": [results['case_prevalence'], results['control_prevalence']]
+                        }))
                     else:
-                        st.warning("No significant associations found.")
+                        st.error("Target variable not found in query logic.")
+                else:
+                    st.error("Could not determine analysis parameters from AI logic.")
+
+            # --- MODE C: GLOBAL SCAN ---
+            elif final_mode == "scan":
+                target = logic_json.get("target_variable")
+                if target:
+                    st.info(f"Scanning variables for association with **{target}**...")
+                    scan_results = AnalysisEngine.perform_global_scan(df, target, cols)
+                    if scan_results:
+                        st.write("### Significant Associations")
+                        st.dataframe(pd.DataFrame(scan_results))
+                    else:
+                        st.warning("No significant associations found (P < 0.05).")
                 else:
                     st.error("Target variable for scan not identified.")
 
             else:
-                st.warning(f"Analysis type '{analysis_type}' not recognized. Please try rephrasing.")
+                st.error(f"Analysis type '{analysis_category}' not recognized.")
 
         except Exception as e:
             st.error(f"Execution Error: {str(e)}")

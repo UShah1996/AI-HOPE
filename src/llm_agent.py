@@ -1,6 +1,7 @@
 import ollama
 import json
 import re
+from difflib import get_close_matches
 
 
 class LLMAgent:
@@ -8,7 +9,6 @@ class LLMAgent:
         self.model = model_name
 
     def _clean_json(self, content):
-        """Helper to extract JSON from LLM chatter."""
         if "```json" in content:
             content = content.split("```json")[1].split("```")[0].strip()
         match = re.search(r"(\{.*\})", content, re.DOTALL)
@@ -17,52 +17,48 @@ class LLMAgent:
         return content
 
     def check_clarification_needed(self, query, column_names):
-        """
-        [Agent 1: Input Validator]
-        Checks if the query is specific enough.
-        """
+        """[Agent 1: Input Validator]"""
         prompt = f"""
         You are a strict data librarian. 
         User Query: "{query}"
         Available Columns: {column_names}
 
-        Task: Determine if the query is clear enough to run a statistical test (Survival, Case-Control, or Scan).
-        - If it refers to columns that likely exist or implies a clear comparison, output "CLEAR".
-        - If it is too vague (e.g., "Analyze data", "Is it bad?", "Check survival" without saying by what), output a clarifying question.
+        Task: Determine if the query is clear enough to run a statistical test.
+        GUIDELINES:
+        - "Compare survival outcomes..." -> CLEAR.
+        - "Does [Variable] affect survival?" -> CLEAR.
+        - "Compare [Group A] vs [Group B]" -> CLEAR.
+        - "Check KRAS status" -> CLEAR (Implies Prevalence).
+        - "Analyze data" -> NOT CLEAR.
+        - "Is it good?" -> NOT CLEAR.
 
-        Output ONLY "CLEAR" or the question.
+        Output ONLY "CLEAR" or the clarifying question.
         """
         try:
             response = ollama.chat(model=self.model, messages=[{'role': 'user', 'content': prompt}])
             result = response['message']['content'].strip()
-
-            if "CLEAR" in result.upper():
-                return None  # No clarification needed
-            return result  # Return the question (e.g., "Which variable do you want to compare?")
+            if "CLEAR" in result.upper(): return None
+            return result
         except:
-            return None  # Fail safe to proceed if LLM errors
+            return None
 
     def interpret_query(self, user_query, column_names):
-        """
-        [Agent 2: Planner]
-        Generates the initial JSON logic.
-        """
+        """[Agent 2: Planner]"""
         system_prompt = f"""
         You are AI-HOPE. Convert the query into JSON logic.
         Available Data Attributes: {column_names}
 
         RULES:
-        1. Identify 'target_variable' and 'cohort' definitions.
-        2. Use ONLY operators: "is", "is not", "greater than", "less than", "is in".
+        1. Output MUST use one of these 'analysis_type' values: 'case_control', 'survival', 'scan'.
+        2. DO NOT use 'descriptive', 'summary', or 'prevalence'. 
+           - If user asks for simple counts (e.g. "Check KRAS"), use 'scan' or 'case_control' with 'All' as cohort.
+        3. Identify 'target_variable' and 'cohort' definitions.
 
-        EXAMPLE INPUT: "Compare TP53 mutations in early vs late stage"
-        EXAMPLE JSON OUTPUT:
-        {{
-            "analysis_type": "case_control",
-            "target_variable": "TP53_Mutation",
-            "case_condition": "TUMOR_STAGE is in {{'Stage III', 'Stage IV'}}",
-            "control_condition": "TUMOR_STAGE is in {{'Stage I', 'Stage II'}}"
-        }}
+        EXAMPLE 1 (Comparison): "Compare TP53 in Stage IV vs I"
+        {{ "analysis_type": "case_control", "target_variable": "TP53_Mutation", "case_condition": "TUMOR_STAGE is 'Stage IV'", "control_condition": "TUMOR_STAGE is 'Stage I'" }}
+
+        EXAMPLE 2 (Prevalence): "Check KRAS status"
+        {{ "analysis_type": "scan", "target_variable": "KRAS_mutation_status" }}
 
         Return ONLY valid JSON.
         """
@@ -73,47 +69,31 @@ class LLMAgent:
         ])
 
         json_text = self._clean_json(response['message']['content'])
-
-        # --- [Agent 3: Verifier Handoff] ---
-        # Instead of returning immediately, we pass the logic to the Verifier
         return self.verify_logic(json_text, column_names)
 
     def verify_logic(self, json_str, column_names):
-        """
-        [Agent 3: Verifier]
-        Sanity checks the generated JSON against actual columns to prevent hallucinations.
-        """
-        verifier_prompt = f"""
-        You are a Code Reviewer.
-        Original JSON Logic: {json_str}
-        Allowed Columns: {column_names}
-
-        Task: 
-        1. Check if 'target_variable' and columns in conditions actually exist in Allowed Columns.
-        2. If a column is misspelled or hallucinated (e.g. 'KRAS_Status' instead of 'KRAS_mutation_status'), CORRECT it to the exact match from Allowed Columns.
-        3. Return the CORRECTED JSON string only.
-        """
-
+        """[Agent 3: Verifier]"""
         try:
-            response = ollama.chat(model=self.model, messages=[{'role': 'user', 'content': verifier_prompt}])
-            corrected_json = self._clean_json(response['message']['content'])
-            return json.loads(corrected_json)
-        except Exception as e:
-            # If verifier fails, try to load the original JSON as a fallback
-            try:
-                return json.loads(json_str)
-            except:
-                return {"error": f"Parsing failed: {str(e)}"}
+            logic = json.loads(json_str)
+
+            def fix_col(val):
+                if val and isinstance(val, str) and val not in column_names:
+                    matches = get_close_matches(val, column_names, n=1, cutoff=0.6)
+                    if matches: return matches[0]
+                return val
+
+            if 'target_variable' in logic: logic['target_variable'] = fix_col(logic['target_variable'])
+            if 'group_by' in logic: logic['group_by'] = fix_col(logic['group_by'])
+            return logic
+        except:
+            return {"error": "Parsing failed"}
 
     def suggest_analysis(self, query):
-        """
-        Determines analysis category.
-        """
         prompt = f"""
         Classify this clinical research question into exactly one of these three categories:
-        1. 'Survival Analysis': Questions about survival time, outcomes, Kaplan-Meier, or hazard ratios.
-        2. 'Case-Control': Questions comparing TWO specific groups (e.g., "Stage I vs Stage IV", "Mutated vs Wild-type").
-        3. 'Association Scan': Open-ended discovery questions (e.g., "What is associated with X?", "Find all correlations").
+        1. 'Survival Analysis': Questions about survival time, outcomes, Kaplan-Meier.
+        2. 'Case-Control': Questions comparing groups (e.g., "Stage I vs IV") or Prevalence (e.g. "Count KRAS").
+        3. 'Association Scan': Open-ended discovery questions.
 
         USER QUESTION: "{query}"
         OUTPUT (Return ONLY the category name):

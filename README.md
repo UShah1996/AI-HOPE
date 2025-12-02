@@ -131,33 +131,33 @@ Identify all variables significantly associated with a specific outcome.
 * *Example Query:* "Run a global association scan to find variables correlated with OS_STATUS."
 * *Mechanism:* The agent scans all available variables in the `index.txt` to identify significant associations.
 
-## 🧪 Sample Queries to Try
+## 🧪 Sample Queries for Testing
 
-### 1. Survival Analysis (Kaplan-Meier & Risk)
-*These queries trigger the survival engine, generating curves and calculating Hazard Ratios.*
+### 1. Survival Analysis
+*Tests the generation of Kaplan-Meier curves and Hazard Ratios.*
 
-* **Standard:** "Perform a survival analysis grouping patients by `KRAS_mutation_status`."
-* **Comparison:** "Compare survival outcomes between patients with and without `TP53_Mutation`."
-* **Natural Language:** "Does having a late-stage tumor affect patient survival?"
+* **Group Comparison:** "Compare survival outcomes between patients with and without `KRAS_mutation_status`." 
+* **Simple Grouping:** "Perform a survival analysis grouping patients by `TUMOR_STAGE`."
+* **Natural Language:** "Does having a TP53 mutation affect overall survival?"
 
-### 2. Case-Control Studies (Enrichment)
-*These queries define two specific groups and check for statistical enrichment (Odds Ratio).*
+### 2. Case-Control Studies
+*Tests the Odds Ratio calculation and cohort definition logic.*
 
-* **Explicit Logic:** "Compare the frequency of `TP53_Mutation` in patients where `TUMOR_STAGE` is 'Stage IV' versus 'Stage I'."
+* **Explicit Cohorts:** "Compare the frequency of `TP53_Mutation` in patients where `TUMOR_STAGE` is 'Stage IV' versus patients where `TUMOR_STAGE` is 'Stage I'."
 * **Clinical Question:** "Is `KRAS_mutation_status` more common in late-stage cancer compared to early-stage?"
+* **Subset Analysis:** "Compare `BRAF_mutation` frequency in male vs female patients."
 
 ### 3. Global Discovery (Association Scan)
-*These queries scan the entire dataset to find significant correlations without a specific hypothesis.*
+*Tests the loop function that scans all variables against a target.*
 
-* **Targeted Scan:** "Run a global association scan for variables correlated with `OS_STATUS`."
-* **Open-Ended:** "What clinical features are significantly associated with `TUMOR_STAGE`?"
+* **Targeted Scan:** "Run a global association scan to find variables correlated with `OS_STATUS`."
+* **Open-Ended:** "Tell me everything associated with `KRAS_mutation_status`."
 
-### 4. Reliability Tests (Multi-Agent System)
-*Test the robustness of the Clarifier and Verifier agents.*
+### 4. Reliability & Safety Tests
+*Tests the Multi-Agent architecture (Clarifier and Verifier).*
 
-* **Ambiguity Check:** "Is the data good?" -> *Should trigger a Clarification Warning.*
+* **Ambiguity Check:** "Is the data good?" -> *Should trigger a warning asking for clarification.*
 * **Hallucination Check:** "Compare survival for `KRAS_Status`." -> *The Verifier should auto-correct `KRAS_Status` to `KRAS_mutation_status`.*
-
 ## 🛡️ Privacy Note
 This software is designed for local deployment only. To maintain the security of sensitive clinical data, do not modify the code to send data to external APIs (e.g., OpenAI, Anthropic). The logic extraction is handled entirely by the local Llama3 instance to avoid online data exchange.
 
