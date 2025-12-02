@@ -25,27 +25,40 @@ Image of multi-agent system architecture
 
 ```mermaid
 graph TD
-    User([User Query]) --> Clarifier[Agent 1: Clarifier<br/>Input Validator]
+    %% Nodes
+    User([User Query])
     
-    Clarifier -- "Ambiguous?" --> Stop([Stop & Ask User])
-    Clarifier -- "Clear" --> Planner[Agent 2: Planner<br/>Logic Generator]
+    subgraph "Agentic Layer (Llama3)"
+        Clarifier[🕵️ Agent 1: Clarifier<br/>Input Validation]
+        Planner[🧠 Agent 2: Planner<br/>Logic Generation]
+        Verifier[✅ Agent 3: Verifier<br/>Hallucination Check]
+    end
     
-    Planner --> LogicJSON[Raw JSON Logic]
+    subgraph "Execution Layer"
+        Parser{Logic Parser}
+        Stats[⚙️ Statistical Engine]
+        Output([Final Analysis])
+    end
+
+    %% Edge Connections
+    User --> Clarifier
     
-    LogicJSON --> Verifier[Agent 3: Verifier<br/>Hallucination Check]
+    Clarifier -- "Ambiguous?" --> Stop([⛔ Stop & Ask User])
+    Clarifier -- "Clear" --> Planner
     
-    Verifier -- "Hallucination Detected" --> Fix[Fix Column Names]
+    Planner -->|Raw JSON| Verifier
+    
+    Verifier -- "Hallucination Detected" --> Fix[Auto-Fix Columns]
     Fix --> Verifier
     
-    Verifier -- "Verified" --> Engine[Statistical Engine]
-    
-    Engine --> Output([Final Analysis Output])
-    
-    subgraph "Local LLM Environment"
-    Clarifier
-    Planner
-    Verifier
-    end
+    Verifier -- "Verified JSON" --> Parser
+    Parser --> Stats
+    Stats --> Output
+
+    %% Styling
+    style Clarifier fill:#f9f,stroke:#333,stroke-width:2px
+    style Planner fill:#bbf,stroke:#333,stroke-width:2px
+    style Verifier fill:#bfb,stroke:#333,stroke-width:2px
 ```
 
 
@@ -122,41 +135,20 @@ AI-HOPE supports two primary modes of analysis triggered by natural language:
 
 Based on the capabilities described in the paper and the dummy data we generated (which contains TUMOR_STAGE, KRAS_mutation_status, TP53_Mutation, OS_MONTHS, and OS_STATUS), here are sample questions you can ask to test each mode of your AI-HOPE agent.
 
-**1. Survival Analysis (Kaplan-Meier & Hazard Ratios)**
+### 1. Case-Control Studies
+Define cohorts based on clinical criteria and compare them.
+* *Example Query:* "Compare the frequency of TP53_Mutation in patients where TUMOR_STAGE is 'Stage IV' versus patients where TUMOR_STAGE is 'Stage I'."
+* *Mechanism:* The system defines "Case" (Stage IV) and "Control" (Stage I) groups using logical expressions and performs an Odds Ratio test.
 
-Tests if the agent can generate survival curves and calculate risk.
+### 2. Survival Analysis
+Compare outcomes between groups using Kaplan-Meier curves and Hazard Ratios.
+* *Example Query:* "Perform a survival analysis grouping patients by KRAS_mutation_status."
+* *Mechanism:* The system filters for patients, stratifies by mutation status, and computes progression-free survival statistics and Hazard Ratios.
 
-* Compare survival outcomes for patients with KRAS_mutation_status.
-* Does TP53_Mutation affect overall survival?
-* Show me the survival curve for TUMOR_STAGE.
-* Analyze the survival difference between patients with and without KRAS mutations.
-
-**2. Case-Control Studies (Odds Ratios)**
-
-Tests if the agent can define "Case" vs "Control" groups and check for enrichment.
-  * Compare TP53_Mutation frequency in Stage I vs Stage IV.
-  * Is KRAS_mutation_status more common in Stage IV compared to Stage I?
-  * Does the frequency of TP53 mutations differ between early-stage (Stage I) and late-stage (Stage IV) cancer?
-  
-(Note: This tests the logic parser's ability to map "early-stage" to specific values if you prompted it, or you can be specific like "Stage I").
-
-**3. Global Discovery (Association Scan)**
-
-Tests the "Loop" function that checks all variables against a target.
-
-* Tell me everything associated with OS_STATUS.
-* What variables are linked to TUMOR_STAGE?
-* Run a global scan for associations with KRAS_mutation_status.
-
-**4. Complex Logic (Testing the Parser)**
-
-Tests if the system handles parenthetical logic or multi-condition groups.
-
-* Compare survival for patients where TUMOR_STAGE is in {'Stage III', 'Stage IV'} vs {'Stage I', 'Stage II'}.
-* Is TP53_Mutation associated with high risk survival groups?
-
-Tip for Best Results:
-* Since we are using a local Llama3 model, it works best when you use the exact column names from your dataset (e.g., say KRAS_mutation_status instead of just "KRAS") until we add more advanced synonym mapping.
+### 3. Global Association Scans (Discovery Mode)
+Identify all variables significantly associated with a specific outcome.
+* *Example Query:* "Run a global association scan to find variables correlated with OS_STATUS."
+* *Mechanism:* The agent scans all available variables in the `index.txt` to identify significant associations.
 
 ## 🛡️ Privacy Note
 This software is designed for local deployment only. To maintain the security of sensitive clinical data, do not modify the code to send data to external APIs (e.g., OpenAI, Anthropic). The logic extraction is handled entirely by the local Llama3 instance to avoid online data exchange.
