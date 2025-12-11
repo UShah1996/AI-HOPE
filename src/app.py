@@ -1,7 +1,12 @@
 import streamlit as st
 import pandas as pd
 import os
+import sys
 import matplotlib.pyplot as plt
+
+# Add src directory to path for imports
+sys.path.insert(0, os.path.dirname(__file__))
+
 from llm_agent import LLMAgent
 from query_parser import QueryParser
 from analysis_engine import AnalysisEngine
@@ -49,7 +54,16 @@ query = st.text_input("Describe your research question:",
 
 if st.button("Analyze"):
     llm = LLMAgent()
-    parser = QueryParser()
+    # Pass dataframe to parser for semantic value mapping
+    parser = QueryParser(df=df)
+    
+    # Extract column values for categorical columns to help LLM
+    column_values = {}
+    for col in cols:
+        if col in df.columns:
+            unique_vals = df[col].dropna().unique()
+            if len(unique_vals) <= 20:  # Only include columns with reasonable number of unique values
+                column_values[col] = unique_vals
 
     with st.spinner("AI-HOPE is thinking..."):
 
@@ -60,11 +74,16 @@ if st.button("Analyze"):
             st.stop()
 
         analysis_category = llm.suggest_analysis(query)
-        logic_json = llm.interpret_query(query, cols)
+        logic_json = llm.interpret_query(query, cols, column_values)
 
         st.subheader(f"Analysis Category: {analysis_category}")
         with st.expander("See AI Logic (Verified)"):
             st.json(logic_json)
+            # Show raw JSON if parsing failed
+            if "error" in logic_json and "raw_json" in logic_json:
+                st.error(f"JSON Parsing Error: {logic_json['error']}")
+                st.text("Raw LLM Response (first 500 chars):")
+                st.code(logic_json.get("raw_json", "")[:500])
 
         try:
             cat_str = str(analysis_category).lower()

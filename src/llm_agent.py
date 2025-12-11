@@ -11,9 +11,23 @@ class LLMAgent:
     def _clean_json(self, content):
         if "```json" in content:
             content = content.split("```json")[1].split("```")[0].strip()
+        elif "```" in content:
+            # Handle other code blocks
+            parts = content.split("```")
+            for i, part in enumerate(parts):
+                if i % 2 == 1:  # Odd indices are code blocks
+                    if "{" in part and "}" in part:
+                        content = part.strip()
+                        break
+        
+        # Try to extract JSON object
         match = re.search(r"(\{.*\})", content, re.DOTALL)
         if match:
             content = match.group(1)
+        
+        # Remove any trailing commas before closing braces/brackets
+        content = re.sub(r',(\s*[}\]])', r'\1', content)
+        
         return content
 
     def check_clarification_needed(self, query, column_names):
@@ -42,25 +56,53 @@ class LLMAgent:
         except:
             return None
 
-    def interpret_query(self, user_query, column_names):
+    def interpret_query(self, user_query, column_names, column_values=None):
         """[Agent 2: Planner]"""
+        # Build column information string
+        col_info = str(column_names)
+        if column_values:
+            col_info_str = "Available Data Attributes:\n"
+            for col, values in column_values.items():
+                if col in column_names:
+                    # Convert numpy types to Python native types and limit to first 10
+                    unique_vals = []
+                    for v in list(values)[:10]:
+                        # Convert numpy types to native Python types
+                        if hasattr(v, 'item'):
+                            unique_vals.append(v.item())
+                        else:
+                            unique_vals.append(str(v))
+                    col_info_str += f"  - {col}: {unique_vals}"
+                    if len(values) > 10:
+                        col_info_str += f" (and {len(values) - 10} more)"
+                    col_info_str += "\n"
+            col_info = col_info_str
+        
         system_prompt = f"""
         You are AI-HOPE. Convert the query into JSON logic.
-        Available Data Attributes: {column_names}
+        {col_info}
 
         RULES:
         1. Output MUST use one of these 'analysis_type' values: 'case_control', 'survival', 'scan'.
         2. DO NOT use 'descriptive', 'summary', or 'prevalence'. 
            - If user asks for simple counts (e.g. "Check KRAS"), use 'scan' or 'case_control' with 'All' as cohort.
         3. Identify 'target_variable' and 'cohort' definitions.
+        4. IMPORTANT: Use EXACT values from the Available Data Attributes above. 
+           - If user says "late-stage", map to actual Stage values like "Stage III" or "Stage IV" (check what exists in data).
+           - If user says "early-stage", map to "Stage I" or "Stage II" (check what exists in data).
+           - Always use the exact case and format as shown in the data.
 
         EXAMPLE 1 (Comparison): "Compare TP53 in Stage IV vs I"
-        {{ "analysis_type": "case_control", "target_variable": "TP53_Mutation", "case_condition": "TUMOR_STAGE is 'Stage IV'", "control_condition": "TUMOR_STAGE is 'Stage I'" }}
+        {{"analysis_type": "case_control", "target_variable": "TP53_Mutation", "case_condition": "TUMOR_STAGE is 'Stage IV'", "control_condition": "TUMOR_STAGE is 'Stage I'"}}
 
-        EXAMPLE 2 (Prevalence): "Check KRAS status"
-        {{ "analysis_type": "scan", "target_variable": "KRAS_mutation_status" }}
+        EXAMPLE 2 (Late vs Early): "KRAS more common in late-stage vs early-stage"
+        If data shows TUMOR_STAGE has values ['Stage I', 'Stage II', 'Stage III', 'Stage IV']:
+        {{"analysis_type": "case_control", "target_variable": "KRAS_mutation_status", "case_condition": "TUMOR_STAGE is in {{'Stage III', 'Stage IV'}}", "control_condition": "TUMOR_STAGE is in {{'Stage I', 'Stage II'}}"}}
 
-        Return ONLY valid JSON.
+        EXAMPLE 3 (Prevalence): "Check KRAS status"
+        {{"analysis_type": "scan", "target_variable": "KRAS_mutation_status"}}
+
+        CRITICAL: Return ONLY valid JSON. Use double quotes for all strings. Do not include any text before or after the JSON.
         """
 
         response = ollama.chat(model=self.model, messages=[
@@ -74,7 +116,12 @@ class LLMAgent:
     def verify_logic(self, json_str, column_names):
         """[Agent 3: Verifier]"""
         try:
+            # Try to parse the JSON
             logic = json.loads(json_str)
+            
+            # Validate that we got a dictionary
+            if not isinstance(logic, dict):
+                return {"error": "Parsing failed: Expected JSON object"}
 
             def fix_col(val):
                 if val and isinstance(val, str) and val not in column_names:
@@ -85,8 +132,11 @@ class LLMAgent:
             if 'target_variable' in logic: logic['target_variable'] = fix_col(logic['target_variable'])
             if 'group_by' in logic: logic['group_by'] = fix_col(logic['group_by'])
             return logic
-        except:
-            return {"error": "Parsing failed"}
+        except json.JSONDecodeError as e:
+            # Return more detailed error information
+            return {"error": f"Parsing failed: {str(e)}", "raw_json": json_str[:200]}
+        except Exception as e:
+            return {"error": f"Parsing failed: {str(e)}", "raw_json": json_str[:200]}
 
     def suggest_analysis(self, query):
         prompt = f"""
