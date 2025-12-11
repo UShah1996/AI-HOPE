@@ -32,6 +32,21 @@ class LLMAgent:
 
     def check_clarification_needed(self, query, column_names):
         """[Agent 1: Input Validator]"""
+        # Quick pattern check for obviously vague queries before LLM call
+        query_lower = query.lower().strip()
+        vague_patterns = [
+            "is the data good", "is it good", "is data good",
+            "how is the data", "how's the data", "how good is",
+            "analyze data", "analyze the data", "analyze this",
+            "tell me about the data", "what about the data",
+            "is this good", "is this data good", "data quality",
+            "check data", "review data", "examine data"
+        ]
+        
+        for pattern in vague_patterns:
+            if pattern in query_lower:
+                return "This query is too vague. Please specify: What specific analysis do you want to perform? (e.g., survival analysis, comparison between groups, association scan)"
+        
         prompt = f"""
         You are a strict data librarian. 
         User Query: "{query}"
@@ -47,9 +62,14 @@ class LLMAgent:
         - "Find variables correlated with [Variable]" -> CLEAR (Association Scan).
         - "Run a global association scan..." -> CLEAR (Association Scan).
         - "What is associated with [Variable]?" -> CLEAR (Association Scan).
-        - "Analyze data" -> NOT CLEAR.
-        - "Is it good?" -> NOT CLEAR.
-        - "Tell me about the data" -> NOT CLEAR.
+        - "Analyze data" -> NOT CLEAR (too vague).
+        - "Is the data good?" -> NOT CLEAR (too vague, no specific analysis requested).
+        - "Is it good?" -> NOT CLEAR (too vague).
+        - "Tell me about the data" -> NOT CLEAR (too vague).
+        - Any query asking about data quality without specifying analysis -> NOT CLEAR.
+
+        If the query is vague or doesn't specify what analysis to run, return a clarifying question.
+        If the query clearly specifies an analysis type and variables, return "CLEAR".
 
         Output ONLY "CLEAR" or the clarifying question.
         """
@@ -129,7 +149,12 @@ class LLMAgent:
             
             # Validate that we got a dictionary
             if not isinstance(logic, dict):
-                return {"error": "Parsing failed: Expected JSON object"}
+                return {"error": "Parsing failed: Expected JSON object", "raw_json": json_str[:200]}
+            
+            # Additional safety check: If JSON is malformed or missing critical fields, 
+            # it might indicate the query was too vague and should have been caught by Clarifier
+            if "error" in logic:
+                return logic  # Already has error info
 
             def fix_col(val, strict=False):
                 if val and isinstance(val, str):
