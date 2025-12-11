@@ -165,7 +165,7 @@ class LLMAgent:
         Classify this clinical research question into exactly one of these three categories:
         1. 'Survival Analysis': Questions about survival time, outcomes, Kaplan-Meier.
         2. 'Case-Control': Questions comparing groups (e.g., "Stage I vs IV") or Prevalence (e.g. "Count KRAS").
-        3. 'Association Scan': Open-ended discovery questions.
+        3. 'Association Scan': Questions asking to find variables correlated/associated with a target, discovery questions, "global scan", "association scan", "find variables correlated with".
 
         USER QUESTION: "{query}"
         OUTPUT (Return ONLY the category name):

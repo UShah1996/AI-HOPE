@@ -100,12 +100,23 @@ if st.button("Analyze"):
             json_type = logic_json.get("analysis_type", "").lower()
 
             final_mode = "unknown"
-            if "survival" in cat_str or "survival" in json_type or "1" in cat_str:
-                final_mode = "survival"
-            elif "case" in cat_str or "control" in cat_str or "2" in cat_str:
-                final_mode = "case_control"
-            elif "scan" in cat_str or "association" in cat_str or "3" in cat_str:
-                final_mode = "scan"
+            # Prioritize analysis_type from logic_json over analysis_category
+            # This is more reliable as it comes from the structured interpretation
+            if json_type:
+                if "survival" in json_type:
+                    final_mode = "survival"
+                elif "scan" in json_type or "association" in json_type:
+                    final_mode = "scan"
+                elif "case" in json_type or "control" in json_type:
+                    final_mode = "case_control"
+            # Fallback to analysis_category if json_type is not clear
+            if final_mode == "unknown":
+                if "survival" in cat_str or "1" in cat_str:
+                    final_mode = "survival"
+                elif "scan" in cat_str or "association" in cat_str or "3" in cat_str:
+                    final_mode = "scan"
+                elif "case" in cat_str or "control" in cat_str or "2" in cat_str:
+                    final_mode = "case_control"
 
             # --- MODE A: SURVIVAL ANALYSIS ---
             if final_mode == "survival":
