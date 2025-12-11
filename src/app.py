@@ -75,6 +75,16 @@ if st.button("Analyze"):
 
         analysis_category = llm.suggest_analysis(query)
         logic_json = llm.interpret_query(query, cols, column_values)
+        
+        # Extract target variable from backticks in query if present (more reliable than LLM parsing)
+        import re
+        backtick_matches = re.findall(r'`([^`]+)`', query)
+        if backtick_matches:
+            # Use the first backtick-enclosed variable as potential target
+            potential_target = backtick_matches[0]
+            # If it exists in columns, override the LLM's target_variable
+            if potential_target in df.columns and 'target_variable' in logic_json:
+                logic_json['target_variable'] = potential_target
 
         st.subheader(f"Analysis Category: {analysis_category}")
         with st.expander("See AI Logic (Verified)"):
@@ -134,6 +144,14 @@ if st.button("Analyze"):
 
                 if target and not case_raw:
                     # FALLBACK: Clinical Prevalence (Single variable check)
+                    # Validate target variable exists first
+                    if target not in df.columns:
+                        available_cols = [c for c in df.columns if c != 'SampleID']  # Exclude SampleID from suggestions
+                        st.error(f"**Error:** Target variable '{target}' not found in dataset.")
+                        st.info(f"**Available columns for analysis:** {', '.join(available_cols)}")
+                        st.info("💡 **Tip:** Make sure the variable name matches exactly (case-sensitive).")
+                        st.stop()
+                    
                     st.info(f"Analyzing Clinical Prevalence for **{target}**")
                     counts = df[target].value_counts()
                     st.bar_chart(counts)
@@ -147,6 +165,24 @@ if st.button("Analyze"):
                     if not ctrl_col and case_col:  # Inverse logic if control missing
                         ctrl_col, ctrl_op = case_col, "not in" if case_op == "in" else "!="
                         ctrl_val = case_val
+
+                    # Validate target variable exists
+                    if target and target not in df.columns:
+                        available_cols = [c for c in df.columns if c != 'SampleID']  # Exclude SampleID from suggestions
+                        st.error(f"**Error:** Target variable '{target}' not found in dataset.")
+                        st.info(f"**Available columns for analysis:** {', '.join(available_cols)}")
+                        st.info("💡 **Tip:** Make sure the variable name matches exactly (case-sensitive).")
+                        st.stop()
+                    
+                    # Validate grouping columns exist
+                    if case_col and case_col not in df.columns:
+                        st.error(f"**Error:** Case condition column '{case_col}' not found in dataset.")
+                        st.info(f"**Available columns:** {', '.join(df.columns.tolist())}")
+                        st.stop()
+                    if ctrl_col and ctrl_col not in df.columns:
+                        st.error(f"**Error:** Control condition column '{ctrl_col}' not found in dataset.")
+                        st.info(f"**Available columns:** {', '.join(df.columns.tolist())}")
+                        st.stop()
 
                     case_mask = parser.apply_filter(df, case_col, case_op, case_val).index
                     ctrl_mask = parser.apply_filter(df, ctrl_col, ctrl_op, ctrl_val).index
@@ -170,6 +206,14 @@ if st.button("Analyze"):
             elif final_mode == "scan":
                 target = logic_json.get("target_variable")
                 if target:
+                    # Validate target variable exists
+                    if target not in df.columns:
+                        available_cols = [c for c in df.columns if c != 'SampleID']
+                        st.error(f"**Error:** Target variable '{target}' not found in dataset.")
+                        st.info(f"**Available columns for analysis:** {', '.join(available_cols)}")
+                        st.info("💡 **Tip:** Make sure the variable name matches exactly (case-sensitive).")
+                        st.stop()
+                    
                     st.info(f"Scanning variables for association with **{target}**...")
                     scan_results = AnalysisEngine.perform_global_scan(df, target, cols)
                     if scan_results:

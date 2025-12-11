@@ -87,7 +87,10 @@ class LLMAgent:
         2. DO NOT use 'descriptive', 'summary', or 'prevalence'. 
            - If user asks for simple counts (e.g. "Check KRAS"), use 'scan' or 'case_control' with 'All' as cohort.
         3. Identify 'target_variable' and 'cohort' definitions.
-        4. IMPORTANT: Use EXACT values from the Available Data Attributes above. 
+        4. CRITICAL: The 'target_variable' MUST be an EXACT match from the Available Data Attributes list above.
+           - If the user mentions a variable that is NOT in the Available Data Attributes, you MUST still use the exact name they provided (do not substitute with a similar variable).
+           - Example: If user says "BRAF_mutation" but only "KRAS_mutation_status" exists, use "BRAF_mutation" as-is (the system will handle the error).
+        5. IMPORTANT: Use EXACT values from the Available Data Attributes above. 
            - If user says "late-stage", map to actual Stage values like "Stage III" or "Stage IV" (check what exists in data).
            - If user says "early-stage", map to "Stage I" or "Stage II" (check what exists in data).
            - Always use the exact case and format as shown in the data.
@@ -123,14 +126,33 @@ class LLMAgent:
             if not isinstance(logic, dict):
                 return {"error": "Parsing failed: Expected JSON object"}
 
-            def fix_col(val):
-                if val and isinstance(val, str) and val not in column_names:
-                    matches = get_close_matches(val, column_names, n=1, cutoff=0.6)
-                    if matches: return matches[0]
+            def fix_col(val, strict=False):
+                if val and isinstance(val, str):
+                    # First check exact match (case-insensitive)
+                    val_lower = val.lower()
+                    for col in column_names:
+                        if col.lower() == val_lower:
+                            return col
+                    
+                    # If not found and not strict, try fuzzy matching
+                    if not strict and val not in column_names:
+                        matches = get_close_matches(val, column_names, n=1, cutoff=0.8)  # Increased cutoff for stricter matching
+                        if matches:
+                            return matches[0]
                 return val
 
-            if 'target_variable' in logic: logic['target_variable'] = fix_col(logic['target_variable'])
-            if 'group_by' in logic: logic['group_by'] = fix_col(logic['group_by'])
+            # Fix target_variable with strict matching - it's critical to get right
+            if 'target_variable' in logic:
+                original_target = logic['target_variable']
+                fixed_target = fix_col(original_target, strict=True)
+                # If the fixed target doesn't exist in columns, keep original to show error
+                if fixed_target not in column_names and original_target not in column_names:
+                    # Try one more time with less strict matching but log it
+                    fixed_target = fix_col(original_target, strict=False)
+                logic['target_variable'] = fixed_target
+            
+            if 'group_by' in logic: 
+                logic['group_by'] = fix_col(logic['group_by'], strict=False)
             return logic
         except json.JSONDecodeError as e:
             # Return more detailed error information
