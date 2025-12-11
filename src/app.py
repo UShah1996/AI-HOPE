@@ -3,6 +3,7 @@ import pandas as pd
 import os
 import sys
 import matplotlib.pyplot as plt
+from difflib import get_close_matches
 
 # Add src directory to path for imports
 sys.path.insert(0, os.path.dirname(__file__))
@@ -76,15 +77,30 @@ if st.button("Analyze"):
         analysis_category = llm.suggest_analysis(query)
         logic_json = llm.interpret_query(query, cols, column_values)
         
-        # Extract target variable from backticks in query if present (more reliable than LLM parsing)
+        # Extract variable from backticks in query if present (more reliable than LLM parsing)
         import re
         backtick_matches = re.findall(r'`([^`]+)`', query)
         if backtick_matches:
-            # Use the first backtick-enclosed variable as potential target
-            potential_target = backtick_matches[0]
-            # If it exists in columns, override the LLM's target_variable
-            if potential_target in df.columns and 'target_variable' in logic_json:
-                logic_json['target_variable'] = potential_target
+            # Use the first backtick-enclosed variable
+            potential_var = backtick_matches[0]
+            
+            # Check if this is a survival analysis query
+            query_lower = query.lower()
+            if "survival" in query_lower or "survive" in query_lower:
+                # For survival analysis, use as group_by
+                if potential_var in df.columns:
+                    logic_json['group_by'] = potential_var
+                    logic_json['analysis_type'] = 'survival'
+                else:
+                    # Try to find close match (Verifier should have done this, but double-check)
+                    matches = get_close_matches(potential_var, df.columns.tolist(), n=1, cutoff=0.6)
+                    if matches:
+                        logic_json['group_by'] = matches[0]
+                        logic_json['analysis_type'] = 'survival'
+            else:
+                # For other analyses, use as target_variable
+                if potential_var in df.columns and 'target_variable' in logic_json:
+                    logic_json['target_variable'] = potential_var
 
         st.subheader(f"Analysis Category: {analysis_category}")
         with st.expander("See AI Logic (Verified)"):

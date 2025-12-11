@@ -25,6 +25,12 @@ class LLMAgent:
         if match:
             content = match.group(1)
         
+        # Remove JSON comments (both // and /* */ style)
+        # Remove single-line comments (// ...)
+        content = re.sub(r'//.*?$', '', content, flags=re.MULTILINE)
+        # Remove multi-line comments (/* ... */)
+        content = re.sub(r'/\*.*?\*/', '', content, flags=re.DOTALL)
+        
         # Remove any trailing commas before closing braces/brackets
         content = re.sub(r',(\s*[}\]])', r'\1', content)
         
@@ -55,7 +61,11 @@ class LLMAgent:
         Task: Determine if the query is clear enough to run a statistical test.
         GUIDELINES:
         - "Compare survival outcomes..." -> CLEAR.
+        - "Compare survival for [Variable]" -> CLEAR (Survival analysis, variable name will be verified later).
         - "Does [Variable] affect survival?" -> CLEAR.
+        - "Perform survival analysis..." -> CLEAR.
+        - "Compare [Variable] frequency in [Group A] vs [Group B]" -> CLEAR (Case-control comparison).
+        - "Compare [Variable] in [Group A] vs [Group B]" -> CLEAR (Case-control comparison).
         - "Compare [Group A] vs [Group B]" -> CLEAR.
         - "Check KRAS status" -> CLEAR (Implies Prevalence).
         - "Tell me everything associated with [Variable]" -> CLEAR (Association Scan).
@@ -68,8 +78,16 @@ class LLMAgent:
         - "Tell me about the data" -> NOT CLEAR (too vague).
         - Any query asking about data quality without specifying analysis -> NOT CLEAR.
 
+        IMPORTANT: 
+        1. If the query specifies an analysis type (survival, comparison, scan) and mentions variables/groups, 
+           it is CLEAR even if the variable names might be wrong or don't exist. The Verifier will handle validation later.
+        2. The Clarifier's job is ONLY to check if the query is specific enough, NOT to validate if variables exist.
+        3. Examples of CLEAR queries even if variables don't exist:
+           - "Compare BRAF_mutation frequency in male vs female" -> CLEAR (specific comparison requested)
+           - "Compare survival for KRAS_Status" -> CLEAR (specific analysis type and variable)
+        
         If the query is vague or doesn't specify what analysis to run, return a clarifying question.
-        If the query clearly specifies an analysis type and variables, return "CLEAR".
+        If the query clearly specifies an analysis type and variables/groups, return "CLEAR".
 
         Output ONLY "CLEAR" or the clarifying question.
         """
@@ -119,15 +137,28 @@ class LLMAgent:
            - If user says "late-stage", map to actual Stage values like "Stage III" or "Stage IV" (check what exists in data).
            - If user says "early-stage", map to "Stage I" or "Stage II" (check what exists in data).
            - Always use the exact case and format as shown in the data.
+        6. CRITICAL: You MUST ALWAYS return valid JSON. Never return plain text error messages.
+           - If you encounter issues, return JSON with an "error" field: {{"error": "description"}}
+           - Do NOT return explanatory text outside of JSON format.
 
-        EXAMPLE 1 (Comparison): "Compare TP53 in Stage IV vs I"
+        EXAMPLE 1 (Survival Analysis): "Compare survival for KRAS_Status"
+        {{"analysis_type": "survival", "group_by": "KRAS_Status"}}
+        
+        EXAMPLE 2 (Survival Analysis): "Compare survival outcomes between patients with and without KRAS_mutation_status"
+        {{"analysis_type": "survival", "group_by": "KRAS_mutation_status"}}
+
+        EXAMPLE 3 (Comparison): "Compare TP53 in Stage IV vs I"
         {{"analysis_type": "case_control", "target_variable": "TP53_Mutation", "case_condition": "TUMOR_STAGE is 'Stage IV'", "control_condition": "TUMOR_STAGE is 'Stage I'"}}
 
-        EXAMPLE 2 (Late vs Early): "KRAS more common in late-stage vs early-stage"
+        EXAMPLE 4 (Late vs Early): "KRAS more common in late-stage vs early-stage"
         If data shows TUMOR_STAGE has values ['Stage I', 'Stage II', 'Stage III', 'Stage IV']:
         {{"analysis_type": "case_control", "target_variable": "KRAS_mutation_status", "case_condition": "TUMOR_STAGE is in {{'Stage III', 'Stage IV'}}", "control_condition": "TUMOR_STAGE is in {{'Stage I', 'Stage II'}}"}}
 
-        EXAMPLE 3 (Prevalence): "Check KRAS status"
+        EXAMPLE 5 (Gender Comparison): "Compare BRAF_mutation frequency in male vs female patients"
+        {{"analysis_type": "case_control", "target_variable": "BRAF_mutation", "case_condition": "GENDER is 'male'", "control_condition": "GENDER is 'female'"}}
+        Note: Use the exact variable names from the query, even if they don't exist in Available Data Attributes.
+
+        EXAMPLE 6 (Prevalence): "Check KRAS status"
         {{"analysis_type": "scan", "target_variable": "KRAS_mutation_status"}}
 
         CRITICAL: Return ONLY valid JSON. Use double quotes for all strings. Do not include any text before or after the JSON.
@@ -139,6 +170,12 @@ class LLMAgent:
         ])
 
         json_text = self._clean_json(response['message']['content'])
+        
+        # Check if the cleaned text looks like JSON (starts with { or [)
+        if not json_text.strip().startswith(('{', '[')):
+            # LLM returned plain text instead of JSON - wrap it as an error
+            return {"error": f"LLM returned non-JSON response: {json_text[:200]}", "raw_json": json_text[:500]}
+        
         return self.verify_logic(json_text, column_names)
 
     def verify_logic(self, json_str, column_names):
@@ -181,8 +218,18 @@ class LLMAgent:
                     fixed_target = fix_col(original_target, strict=False)
                 logic['target_variable'] = fixed_target
             
-            if 'group_by' in logic: 
-                logic['group_by'] = fix_col(logic['group_by'], strict=False)
+            # Fix group_by variable (used for survival analysis) - also needs correction
+            if 'group_by' in logic:
+                original_group = logic['group_by']
+                fixed_group = fix_col(original_group, strict=False)
+                # For survival analysis, group_by is critical - try fuzzy matching
+                if fixed_group not in column_names and original_group not in column_names:
+                    # Try fuzzy matching with lower cutoff for group_by
+                    if isinstance(original_group, str):
+                        matches = get_close_matches(original_group, column_names, n=1, cutoff=0.6)
+                        if matches:
+                            fixed_group = matches[0]
+                logic['group_by'] = fixed_group
             return logic
         except json.JSONDecodeError as e:
             # Return more detailed error information
