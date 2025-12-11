@@ -43,8 +43,13 @@ class LLMAgent:
         - "Does [Variable] affect survival?" -> CLEAR.
         - "Compare [Group A] vs [Group B]" -> CLEAR.
         - "Check KRAS status" -> CLEAR (Implies Prevalence).
+        - "Tell me everything associated with [Variable]" -> CLEAR (Association Scan).
+        - "Find variables correlated with [Variable]" -> CLEAR (Association Scan).
+        - "Run a global association scan..." -> CLEAR (Association Scan).
+        - "What is associated with [Variable]?" -> CLEAR (Association Scan).
         - "Analyze data" -> NOT CLEAR.
         - "Is it good?" -> NOT CLEAR.
+        - "Tell me about the data" -> NOT CLEAR.
 
         Output ONLY "CLEAR" or the clarifying question.
         """
