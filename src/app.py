@@ -26,7 +26,7 @@ def load_data(dataset_name):
 
 
 # --- Main App Interface ---
-st.title("🧬 AI-HOPE: Precision Medicine Agent")
+st.title("🧬 AI-HOPE: Precision Medicine Agent (Original Version)")
 st.markdown("*Locally deployed clinical research assistant [Bioinformatics 2025]*")
 
 # Sidebar: Data Selection
