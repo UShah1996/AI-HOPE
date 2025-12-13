@@ -75,13 +75,13 @@ graph TD
     * **Action:** It compares the Planner's JSON against the *actual* dataset columns. If the Planner hallucinates a column name (e.g., `KRAS_Status`), the Verifier corrects it to the real column name (`KRAS_mutation_status`) before the code crashes.
 
 4.  **Statistical Engine:**
-    * [cite_start]Executes the verified logic to perform prevalence testing, association analysis, and survival modeling[cite: 55].
+    * Executes the verified logic to perform prevalence testing, association analysis, and survival modeling.
 
 ---
 
 ## 📂 Data Formatting Requirements
 
-[cite_start]To ensure the agent can autonomously read your data, datasets must be organized into specific folders containing **three mandatory components** [cite: 74-76]:
+To ensure the agent can autonomously read your data, datasets must be organized into specific folders containing **three mandatory components** :
 
 1.  **`README.txt`**: A text file providing an overview of the dataset.
 2.  **`index.txt`**: A list of key attributes (column headers) available for analysis.
@@ -145,7 +145,7 @@ Identify all variables significantly associated with a specific outcome.
 
 * **Explicit Cohorts:** "Compare the frequency of `TP53_Mutation` in patients where `TUMOR_STAGE` is 'Stage IV' versus patients where `TUMOR_STAGE` is 'Stage I'."
 * **Clinical Question:** "Is `KRAS_mutation_status` more common in late-stage cancer compared to early-stage?"
-* **Subset Analysis:** "Compare `BRAF_mutation` frequency in male vs female patients."
+* **Subset Analysis:** "Compare `KRAS` frequency in male vs female patients."
 
 ### 3. Global Discovery (Association Scan)
 *Tests the loop function that scans all variables against a target.*
