@@ -1,168 +1,209 @@
-# AI-HOPE: AI-Driven Agent for Precision Medicine
+# AI-HOPE: Multi-Agent LLM Platform for Clinical & Genomic Data Analysis
 
-**An open-source implementation of the AI-HOPE system described in *Bioinformatics (2025)*.**
+A production multi-agent LLM system using a Planner-Verifier architecture for autonomous clinical data querying, with a vLLM serving layer for high-throughput inference.
 
-This repository contains the implementation of **AI-HOPE (Artificial Intelligence Agent for High-Optimization and Precision Medicine)**, an LLM-driven system designed to integrate clinical and genomic data through natural language interactions.
-
-## 📖 Overview
-
-The growing complexity of clinical cancer research requires tools that can bridge the gap between complex data and researchers without programming expertise. AI-HOPE addresses this by allowing domain experts to conduct integrative data analyses—such as survival analysis and association studies—using simple conversational queries.
-
-### Core Philosophy
-* **Natural Language Interface:** Users provide instructions in plain English (e.g., "Compare survival outcomes between groups").
-* **Privacy-First Architecture:** Operates as a **closed system** using locally deployed Large Language Models (LLMs) to ensure HIPAA and GDPR compliance by preventing data leakage.
-* **Automated Statistics:** Automatically selects and executes statistical tests (Odds Ratios, Log-rank tests, Hazard Ratios) based on the user's intent.
+[![Python](https://img.shields.io/badge/Python-3.9-blue)](https://python.org)
+[![vLLM](https://img.shields.io/badge/Serving-vLLM-orange)](https://github.com/vllm-project/vllm)
+[![Llama3](https://img.shields.io/badge/Model-Llama--3-green)](https://ai.meta.com/llama/)
+[![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
 
 ---
 
-## 🏗️ System Architecture: Multi-Agent Workflow
+## Overview
 
-To ensure high reliability and reduce hallucinations, this implementation uses a **Multi-Agent Architecture** that validates inputs and logic before execution:
+AI-HOPE is an LLM-driven multi-agent system that allows domain experts to run clinical and genomic data analyses — survival analysis, association studies, case-control comparisons — using natural language queries. The system uses a three-agent pipeline (Clarifier → Planner → Verifier) to validate queries, generate structured analysis plans, and correct hallucinated column names before execution.
 
+**Implementation based on:** [AI-HOPE: an AI-driven conversational agent for enhanced clinical and genomic data integration in precision medicine research](https://doi.org/10.1093/bioinformatics/btaf359), *Bioinformatics* 2025, 41(7), btaf359.
 
+---
 
-Image of multi-agent system architecture
+## Serving Infrastructure (vLLM)
 
-```mermaid
-graph TD
-    %% Nodes
-    User([User Query])
-    
-    subgraph "Agentic Layer (Llama3)"
-        Clarifier[🕵️ Agent 1: Clarifier<br/>Input Validation]
-        Planner[🧠 Agent 2: Planner<br/>Logic Generation]
-        Verifier[✅ Agent 3: Verifier<br/>Hallucination Check]
-    end
-    
-    subgraph "Execution Layer"
-        Parser{Logic Parser}
-        Stats[⚙️ Statistical Engine]
-        Output([Final Analysis])
-    end
+The original system used Ollama for local inference. The `serving/` module replaces this with **vLLM** for production-grade throughput:
 
-    %% Edge Connections
-    User --> Clarifier
-    
-    Clarifier -- "Ambiguous?" --> Stop([⛔ Stop & Ask User])
-    Clarifier -- "Clear" --> Planner
-    
-    Planner -->|Raw JSON| Verifier
-    
-    Verifier -- "Hallucination Detected" --> Fix[Auto-Fix Columns]
-    Fix --> Verifier
-    
-    Verifier -- "Verified JSON" --> Parser
-    Parser --> Stats
-    Stats --> Output
+| Feature | Ollama (original) | vLLM (serving/) |
+|---|---|---|
+| Batching | Sequential | Continuous batching |
+| Precision | FP32 | FP16 |
+| KV cache | Per-request | Shared prefix caching |
+| Concurrency | 1 | N concurrent agent loops |
 
-    %% Styling
-    style Clarifier fill:#f9f,stroke:#333,stroke-width:2px
-    style Planner fill:#bbf,stroke:#333,stroke-width:2px
-    style Verifier fill:#bfb,stroke:#333,stroke-width:2px
+### Throughput benchmark
+
+```bash
+# Install vLLM (GPU required, CUDA 12+)
+pip install vllm openai torch transformers
+
+# Run in-process benchmark (vLLM AsyncEngine vs HF Transformers baseline)
+python serving/benchmark.py \
+    --model meta-llama/Meta-Llama-3-8B-Instruct \
+    --num_requests 100 \
+    --concurrency 8
 ```
 
-
-1.  **Agent 1: The Clarifier (Input Validator)**
-    * **Role:** Acts as a "Gatekeeper." It analyzes the user's query for ambiguity.
-    * **Action:** If a query is too vague (e.g., "Analyze this"), it halts execution and asks the user specific clarifying questions instead of guessing.
-
-2.  **Agent 2: The Planner (Logic Generator)**
-    * **Role:** Converts natural language into structured logic.
-    * **Action:** It identifies the target variable and cohort conditions, outputting a raw JSON plan (e.g., `Target: KRAS_Mutation`, `Case: Stage IV`).
-
-3.  **Agent 3: The Verifier (Hallucination Check)**
-    * **Role:** Acts as a "Code Reviewer."
-    * **Action:** It compares the Planner's JSON against the *actual* dataset columns. If the Planner hallucinates a column name (e.g., `KRAS_Status`), the Verifier corrects it to the real column name (`KRAS_mutation_status`) before the code crashes.
-
-4.  **Statistical Engine:**
-    * Executes the verified logic to perform prevalence testing, association analysis, and survival modeling.
+Results are written to `serving/results/benchmark_results.json`. See `serving/SETUP.md` for full reproduction instructions.
 
 ---
 
-## 📂 Data Formatting Requirements
+### Prefix KV cache sharing across agent turns
 
-To ensure the agent can autonomously read your data, datasets must be organized into specific folders containing **three mandatory components** :
+`agents_vllm.py` redesigns the prompt structure specifically to enable vLLM prefix caching: all three agents share a byte-identical `SHARED_SYSTEM_PREFIX` at the start of their system prompts, with role-specific instructions appended as a suffix. Since the prefix is identical across all three agent calls, vLLM's automatic prefix caching stores those KV blocks once per session — each turn only computes KV for its incremental role-suffix and query tokens.
 
-1.  **`README.txt`**: A text file providing an overview of the dataset.
-2.  **`index.txt`**: A list of key attributes (column headers) available for analysis.
-3.  **`data_table.tsv`**: The main tab-delimited data table where rows represent samples and columns represent attributes.
+```
+SHARED_SYSTEM_PREFIX  ← cached once, reused by all three agents
+    + CLARIFIER_SUFFIX  ← incremental KV only
+    + PLANNER_SUFFIX    ← incremental KV only
+    + VERIFIER_SUFFIX   ← incremental KV only
+```
 
-**Directory Structure Example:**
-```text
+This is a deliberate prompt engineering contribution on top of the original AI-HOPE architecture, which used separate per-agent system prompts (incompatible with prefix caching). The redesign is documented in `serving/agents_vllm.py`.
+
+To measure the actual cache speedup:
+```bash
+python serving/kv_cache_demo.py --model meta-llama/Meta-Llama-3-8B-Instruct
+```
+
+---
+
+## Multi-Agent Architecture
+
+```
+User Query
+    │
+    ▼
+┌─────────────┐   ambiguous?   ┌──────────────────┐
+│  Clarifier  │ ─────────────► │ Ask User         │
+│ (Gatekeeper)│                └──────────────────┘
+└─────────────┘
+    │ clear
+    ▼
+┌─────────────┐
+│   Planner   │ ── raw JSON ──────────────────────┐
+│  (Logic Gen)│                                   │
+└─────────────┘                                   ▼
+                                       ┌─────────────────────┐
+                                       │      Verifier       │
+                                       │ (Hallucination Check│
+                                       │  + Auto-Correction) │
+                                       └─────────────────────┘
+                                                  │ verified JSON
+                                                  ▼
+                                       ┌─────────────────────┐
+                                       │  Statistical Engine │
+                                       └─────────────────────┘
+                                                  │
+                                                  ▼
+                                               Output
+```
+
+**Agent 1 — Clarifier:** Checks if the query is specific enough. Halts and asks clarifying questions if ambiguous — never guesses.
+
+**Agent 2 — Planner:** Converts the natural language query into a structured JSON analysis plan:
+`{"operation": ..., "target_variable": ..., "case_condition": ..., "control_condition": ...}`
+
+**Agent 3 — Verifier:** Compares the Planner's JSON against actual dataset columns. If the Planner hallucinates a column name (e.g., `KRAS_Status` instead of `KRAS_mutation_status`), the Verifier auto-corrects it before execution.
+
+---
+
+## Repo Structure
+
+```
+AI-HOPE/
+├── src/
+│   ├── app.py              # Streamlit interface (Ollama backend)
+│   └── agents.py           # Original Ollama-based agent calls
+├── serving/                # vLLM serving layer (production backend)
+│   ├── vllm_server.py      # AsyncLLMEngine, FP16, prefix caching config
+│   ├── benchmark.py        # Throughput: vLLM vs HF Transformers baseline
+│   ├── kv_cache_demo.py    # Prefix KV cache sharing measurement
+│   ├── agents_vllm.py      # Drop-in replacement using vLLM + shared prefix
+│   └── SETUP.md            # GPU setup and run instructions
+├── tests/
+├── generate_data.py
+├── requirements.txt
+└── README.md
+```
+
+---
+
+## Quick Start
+
+### Option A — Original (Ollama, CPU-friendly)
+
+```bash
+git clone https://github.com/UShah1996/AI-HOPE.git
+cd AI-HOPE
+pip install -r requirements.txt
+
+# Pull Llama3 via Ollama
+ollama run llama3
+
+# Run app
+streamlit run src/app.py
+```
+
+### Option B — vLLM serving (GPU required, CUDA 12+)
+
+```bash
+pip install vllm openai torch transformers
+
+# Run using vLLM AsyncEngine (in-process, no HTTP server needed)
+# In src/app.py, swap:
+#   from src.agents import run_pipeline
+# for:
+#   from serving.agents_vllm import run_pipeline
+
+# Or launch vLLM's built-in OpenAI-compatible server:
+python -m vllm.entrypoints.openai.api_server \
+    --model meta-llama/Meta-Llama-3-8B-Instruct \
+    --dtype float16
+```
+
+See `serving/SETUP.md` for full GPU setup, HuggingFace token requirements, and benchmark reproduction steps.
+
+---
+
+## Supported Analysis Types
+
+**Case-Control Studies:**
+```
+"Compare the frequency of TP53_Mutation in Stage IV vs Stage I patients"
+```
+
+**Survival Analysis:**
+```
+"Perform survival analysis grouping patients by KRAS_mutation_status"
+```
+
+**Global Association Scans:**
+```
+"Run a global association scan to find all variables correlated with OS_STATUS"
+```
+
+**Reliability Tests (Multi-Agent):**
+```
+"Is the data good?"
+→ Clarifier triggers: asks for specific clarifying questions
+
+"Compare survival for KRAS_Status"
+→ Verifier auto-corrects KRAS_Status → KRAS_mutation_status
+```
+
+---
+
+## Data Format
+
+```
 data/
-└── your_dataset_name/
-    ├── README.txt
-    ├── index.txt
-    └── data_table.tsv
+└── your_dataset/
+    ├── README.txt       # Dataset overview
+    ├── index.txt        # Column names available for analysis
+    └── data_table.tsv   # Tab-delimited data (rows = samples)
 ```
 
-## 🛠️ Installation & Setup
-Prerequisites
-Python 3.9+
-Ollama: This project requires a local instance of Llama3. Download Ollama from ollama.com.
+---
 
+## Reference
 
-1. Clone the Repository
-   * Bash: git clone [https://github.com/UShah1996/AI-HOPE.git](https://github.com/UShah1996/AI-HOPE.git)
-   * cd ai-hope-implementation
-2. Install Python Dependencies
-   * Bash: pip install -r requirements.txt
-3. Initialize Local LLM
-Ensure Ollama is running and pull the Llama3 model (or the specific model version you intend to use).
-   * Bash: ollama run llama3
-4. Run the Application
-   * Bash: streamlit run src/app.py
-
-## 🧪 Capabilities & Usage
-AI-HOPE supports three primary modes of analysis triggered by natural language:
-
-### 1. Case-Control Studies
-Define cohorts based on clinical criteria and compare them.
-* *Example Query:* "Compare the frequency of TP53_Mutation in patients where TUMOR_STAGE is 'Stage IV' versus patients where TUMOR_STAGE is 'Stage I'."
-* *Mechanism:* The system defines "Case" (Stage IV) and "Control" (Stage I) groups using logical expressions and performs an Odds Ratio test.
-
-### 2. Survival Analysis
-Compare outcomes between groups using Kaplan-Meier curves and Hazard Ratios.
-* *Example Query:* "Perform a survival analysis grouping patients by KRAS_mutation_status."
-* *Mechanism:* The system filters for patients, stratifies by mutation status, and computes progression-free survival statistics and Hazard Ratios.
-
-### 3. Global Association Scans (Discovery Mode)
-Identify all variables significantly associated with a specific outcome.
-* *Example Query:* "Run a global association scan to find variables correlated with OS_STATUS."
-* *Mechanism:* The agent scans all available variables in the `index.txt` to identify significant associations.
-
-## 🧪 Sample Queries for Testing
-
-### 1. Survival Analysis
-*Tests the generation of Kaplan-Meier curves and Hazard Ratios.*
-
-* **Group Comparison:** "Compare survival outcomes between patients with and without `KRAS_mutation_status`." 
-* **Simple Grouping:** "Perform a survival analysis grouping patients by `TUMOR_STAGE`."
-* **Natural Language:** "Does having a TP53 mutation affect overall survival?"
-
-### 2. Case-Control Studies
-*Tests the Odds Ratio calculation and cohort definition logic.*
-
-* **Explicit Cohorts:** "Compare the frequency of `TP53_Mutation` in patients where `TUMOR_STAGE` is 'Stage IV' versus patients where `TUMOR_STAGE` is 'Stage I'."
-* **Clinical Question:** "Is `KRAS_mutation_status` more common in late-stage cancer compared to early-stage?"
-* **Subset Analysis:** "Compare `KRAS` frequency in male vs female patients."
-
-### 3. Global Discovery (Association Scan)
-*Tests the loop function that scans all variables against a target.*
-
-* **Targeted Scan:** "Run a global association scan to find variables correlated with `OS_STATUS`."
-* **Open-Ended:** "Tell me everything associated with `KRAS_mutation_status`."
-
-### 4. Reliability & Safety Tests
-*Tests the Multi-Agent architecture (Clarifier and Verifier).*
-
-* **Ambiguity Check:** "Is the data good?" -> *Should trigger a warning asking for clarification.*
-* **Hallucination Check:** "Compare survival for `KRAS_Status`." -> *The Verifier should auto-correct `KRAS_Status` to `KRAS_mutation_status`.*
-## 🛡️ Privacy Note
-This software is designed for local deployment only. To maintain the security of sensitive clinical data, do not modify the code to send data to external APIs (e.g., OpenAI, Anthropic). The logic extraction is handled entirely by the local Llama3 instance to avoid online data exchange.
-
-
-## 📚 Reference
-This implementation is based on:
-
-AI-HOPE: an AI-driven conversational agent for enhanced clinical and genomic data integration in precision medicine research Bioinformatics, 2025, 41(7), btaf359. https://doi.org/10.1093/bioinformatics/btaf359.
+> AI-HOPE: an AI-driven conversational agent for enhanced clinical and genomic data integration in precision medicine research.
+> *Bioinformatics*, 2025, 41(7), btaf359. https://doi.org/10.1093/bioinformatics/btaf359
